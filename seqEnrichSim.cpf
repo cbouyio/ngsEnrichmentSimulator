@@ -1,0 +1,15 @@
+#sequenceEnrichmentParameters
+randomSeed : 1
+#experimentType
+test
+#LibraryParamaters
+libraryType        : genomicDNA
+insertSize         : 500
+standardDeviation  : 100
+coverage           : 10
+#NGSparameters
+sequencingPlatform : Illumina
+readLength         : 120
+pairedEnd          : True
+errorModel         : True
+
