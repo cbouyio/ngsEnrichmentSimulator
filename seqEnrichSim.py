@@ -8,10 +8,10 @@ import sys
 import re
 import random
 import string
+import copy
 
-import Bio
-from Bio import Seq
 from Bio import SeqIO
+from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
 from Bio.Alphabet import IUPAC
 
@@ -59,6 +59,7 @@ class Experiment(object) :
 
 class CaptureArray(object) :
   """Class to represent a capture array.
+
   """
 
   def __init__(self) :
@@ -86,7 +87,6 @@ class LibraryFactory(object) :
     """Constructor.
 
     Takes the LibraryParameters object as a parameter.
-
     @param libraryParameters: A C{LibraryParameters} instance to describe the
     parameters of the library generation.
     @type libraryParameters: C{class LibraryParameters}
@@ -104,14 +104,15 @@ class LibraryFactory(object) :
     """Generate a sequencing library.
 
     Factory method that generates the clones of a library.
-    Returns a Bio.SeqIO.record with all the library clones.
+    Returns a Bio.SeqIO.SeqRecord with all the library clones.
     @param refFastaFile: A fasta file containing the reference genome. Either a
     multi-fasta files or single fasta entry files are supported. The file can
     either come as a filehandler or as a filename string.
     @tyoe refFastaFile: C{'file'} or C{'string'}
     @rtype : C{list} of C{class 'Bio.SeqRecord'}s
     """
-    # Check that fh is a filehandler and not just a filename, the wite method of SeqIO works perfectly well with filenames but
+    # Check that fh is a filehandler and not just a filename, the wite method
+    # of SeqIO works perfectly well with filenames but
     if not isinstance(refFastaFile, (file, str,)) :
       raise StandardError, 'Reference fasta file should be either a filehandler or a string of the fasta file name.'
     # Set the random number generator.
@@ -140,16 +141,16 @@ class LibraryFactory(object) :
     return libraryClones
 
 
-  def print_library(self, libraryClones, fh) :
-    """Print the sequencing library in to a file.
-
-    """
-    if not isinstance(fh, file) :
-      raise StandardError, 'Method print library requires an open ready to write filehandler to properly write all the libray clones.'
-    for clone in libraryClones :
-      SeqIO.write(clone, fh, 'fasta')
-    if fh is not sys.stdout :
-      fh.close()
+#  def print_library(self, libraryClones, fh) :
+#    """Print the sequencing library in to a file.
+#
+#    """
+#    if not isinstance(fh, file) :
+#      raise StandardError, 'Method print library requires an open ready to write filehandler to properly write all the libray clones.'
+#    for clone in libraryClones :
+#      SeqIO.write(clone, fh, 'fasta')
+#    if fh is not sys.stdout :
+#      fh.close()
 
 
 
@@ -201,18 +202,19 @@ class NGSFactory(object) :
   def generate_illumina_reads(self) :
     """Generate Illumina reads.
 
+    @rtype: C{list} of C{class 'Bio.SeqRecord'}
     """
     readsList = []
     for clone in self.cloneList :
       read1 = clone[:self.readLength]
       rn = self.rng.random()
-      if rn > 0.5 :
+      if rn >= 0.5 :
         read1.seq = read1.seq.reverse_complement()
       read1.description = ''
       read1.id = clone.id + '_read'
       if self.pairedEnd :
         read2 = clone[(len(clone) - self.readLength):]
-        if rn <= 0.5 :
+        if rn < 0.5 :
           read2.seq = read2.seq.reverse_complement()
         read2.description = ''
         read2.id = clone.id + '_read_2'
@@ -225,7 +227,7 @@ class NGSFactory(object) :
 
 
   def generate_454_reads(self) :
-    """Generate Illumina reads.
+    """Generate Roche 454 reads.
 
     """
     pass
@@ -236,7 +238,8 @@ class NGSFactory(object) :
 
     Currently implements only an Illumina sequencing error model.
     @param readsList: A list of NGS reads.
-    @type readsList: C{'list'} of C{class 'Bio.Seq'}
+    @type readsList: C{'list'} of C{class 'Bio.SeqRecord'}
+    @rtype: None
     """
 
     # A block of nested functions follows.
@@ -288,11 +291,11 @@ class NGSFactory(object) :
       Dohm2008 NAR paper.
       """
       # Empiricaly derived error rates.
-      totalErrors = 0
+      totalErrors     = 0
       totalErrorReads = 0
-      error1   = 0.001
-      errorMin = 0.0005
-      errorMax = 0.005
+      error1          = 0.002
+      errorMin        = 0.001
+      errorMax        = 0.01
       # Generate the error rate distribution.
       errorModelDist = generate_error_distribution(errorMin, errorMax, self.readLength - 1)
       # Prepend the error rate for the first position.
@@ -300,7 +303,7 @@ class NGSFactory(object) :
       avgError = sum(errorModelDist) / float(len(errorModelDist))
       for read in readList :
         readSeq = read.seq
-        # CXonvert the sequence to mutable so that you can alter it.
+        # Convert the sequence to mutable so that you can alter it.
         readSeq = readSeq.tomutable()
 #        print '--------'
 #        print 'original: %s' % readSeq
@@ -326,11 +329,11 @@ class NGSFactory(object) :
         # imutable.
         read.seq = readSeq.toseq()
 #        print 'mutated : %s' % readSeq
-      print errorModelDist
-      print avgError
-      print 'total reads : %i' % len(readsList)
-      print 'total error reads : %i' % totalErrorReads
-      print 'total errors: %i' % totalErrors
+#      print errorModelDist
+#      print avgError
+#      print 'total reads      : %i' % len(readsList)
+#      print 'total error reads: %i' % totalErrorReads
+#      print 'total errors     : %i' % totalErrors
 
     def impose_454_errors(readList) :
       """Implement a 454 sequencing error model.
@@ -348,16 +351,16 @@ class NGSFactory(object) :
       raise StandardError, 'Sequencing platform "%s" not identified.' % self.platform
 
 
-  def print_ngs_sequencing(self, reads, fh) :
-    """Print the reads that the NGS simulator hgas generated in fasta format.
-
-    """
-    if not isinstance(fh, file) :
-      raise StandardError, 'Method print library requires an open ready to write filehandler to properly write all the libray clones.'
-    for read in reads :
-      SeqIO.write(read, fh, 'fasta')
-    if fh is not sys.stdout :
-      fh.close()
+#  def print_ngs_sequencing(self, reads, fh) :
+#    """Print the reads that the NGS simulator hgas generated in fasta format.
+#
+#    """
+#    if not isinstance(fh, file) :
+#      raise StandardError, 'Method print library requires an open ready to write filehandler to properly write all the libray clones.'
+#    for read in reads :
+#      SeqIO.write(read, fh, 'fasta')
+#    if fh is not sys.stdout :
+#      fh.close()
 
 
 
@@ -635,7 +638,87 @@ class GenomeSequence(AbstactReference) :
     else :
       raise StandardError, 'Only fasta format is supporting by the module at the moment...'
 
-#  def next(self)
-#    """Return the next fasta sequence
-#    """
+
+
+class TranslationFactory(object) :
+  """Class to represent a factory to conduct a 6 frame translation.
+
+  """
+
+  def __init__(self, seqList) :
+    """Constructor.
+
+    Takes a list of sequences.
+    @param seqList: A list of the sequences.
+    @type seqList: C{list} of C{class 'Bio.SeqIO.SeqRecord'}
+    """
+    self.reads = seqList
+
+
+  def __call__(self, frames) :
+    """The caller of the class.
+
+    Implements the translation in the number of frames asked (1-6).
+    Returns a list of protein sequences.
+    @param frames: The number of ORFs required.
+    @type frames: C{int}
+    @rtype : C{list} of C{class 'Bio.SeqIO.SeqRecord'}
+    """
+    # check frames is less than 6 and greater than one.
+    if (frames < 1) or (6 < frames) :
+      raise StandardError, 'The number of frames should be between 1 to 6.'
+    translReads = []
+    for read in self.reads :
+#      transRead = copy.deepcopy(read)
+      readSeq = read.seq
+      for i in xrange(frames) :
+        if i < 3 :
+          transRead = SeqRecord(readSeq)
+          transRead.seq = readSeq[i:].translate()
+          transRead.id = read.id #+ '_frame%i' % (i + 1)
+          transRead.description ='frame%i' % (i + 1)
+          translReads.append(transRead)
+        if i >= 3 :
+          transRead = SeqRecord(readSeq)
+          transRead.seq = readSeq[(i - 3):].reverse_complement().translate()
+          transRead.id = read.id #+ '_frame%i' % (2 - i)
+          transRead.description = 'frame%i' % (2 - i)
+          translReads.append(transRead)
+    return translReads
+
+
+
+# Some usefull functions
+
+def print_SeqRecord_list(seqRecList, fh) :
+  """Print the a list of Seqrecord in a file, specified by fh, in FASTA format.
+
+  """
+  if not isinstance(fh, file) :
+    raise StandardError, 'Method print library requires an open ready to write filehandler to properly write all the libray clones.'
+  for seqRec in seqRecList :
+    SeqIO.write(seqRec, fh, 'fasta')
+  if fh is not sys.stdout :
+      fh.close()
+
+
+def parse_hmmsearch_output(hmmSearch, paired = True) :
+  """Extremly basic parser of the output of the hmmsearch program.
+
+  Return only a list with the unique fasta IDs of the hits, as well as their pair
+  end read incase the paired flag is true (by default).
+  @param hmmSearch: The output of the hmmsearch program.
+  @type hmmSearch: C{'str'}
+  @param paired: Flag to specify if we want to return the pair of the read.
+  @type paired: C{'bool'}
+  @rtype : C{'set'}
+  """
+  readIDs = []
+  for line in hmmSearch.spilt("\n")
+    if re.match('>>', line) :
+      readID = str(line.split()[1])[:-1]
+      readIDs.append(readID + '_1')
+      if paired :
+        readIDs.append(readID + '_2')
+  return set(readIDs)
 

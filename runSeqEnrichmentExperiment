@@ -3,11 +3,11 @@
 # Script to run the sequence enrichment simulator.
 # Developed by C. Bouyioukos @TSL, Nov 2010.
 
+import os
 import sys
 import getopt
-
-import Bio
-from Bio import SeqIO
+import subprocess
+import re
 
 import seqEnrichSim
 
@@ -42,6 +42,15 @@ if len(args) > 0 :
 else :
   infile = sys.stdin
 if len(args) > 1 :
+  if os.path.exists(args[1]) :
+    # Compile the command line call.
+    cmdLine = 'hmmsearch NB-LRR.hmm ' + args[1]
+    # Run the HMM and collect the read names.
+    hmmSearch = subprocess.Popen(cmdLine.split(), stdout=subprocess.PIPE).communicate()[0]
+    for line in hmmSearch.split("\n") :
+      if re.match('>>', line) :
+        print line
+    sys.exit()
   outfile = open(args[1], 'w')
 else :
   outfile = sys.stdout
@@ -60,10 +69,6 @@ cParams = cpParser.parse()
 # Instantiate the library factory.
 libFact = seqEnrichSim.LibraryFactory(cParams.libraryParameters)
 
-## Get the reference sequence form the input file.
-#rsParser = Bio.SeqIO.parse(infile, "fasta")
-#refSeq = rsParser.next()
-
 # Generate the sequencing library.
 lib = libFact.generate_sequencing_library(infile)
 
@@ -71,9 +76,22 @@ lib = libFact.generate_sequencing_library(infile)
 ngsFact = seqEnrichSim.NGSFactory(cParams.ngsParameters, lib)
 
 # Generate NGS reads.
-reads = ngsFact.generate_ngs_reads()
+ngsReads = ngsFact.generate_ngs_reads()
 
-# print
-ngsFact.print_ngs_sequencing(reads, outfile)
-#libFact.print_library(lib, outfile)
+# Generate the 6 frames of the reads.
+translFact = seqEnrichSim.TranslationFactory(ngsReads)
+translReads = translFact(6)
+
+# print.
+seqEnrichSim.print_SeqRecord_list(translReads, outfile)
+
+# Compile the command line call.
+cmdLine = 'hmmsearch NB-LRR.hmm ' + outfile.name
+
+# Run the HMM and collect the read names.
+hmmSearch = subprocess.Popen(cmdLine.split()).communicate()[0]
+
+for line in hmmSearch :
+  if re.match('>>', line) :
+    print line
 
