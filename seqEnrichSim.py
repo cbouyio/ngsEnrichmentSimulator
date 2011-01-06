@@ -8,7 +8,7 @@ import sys
 import re
 import random
 import string
-import copy
+#import copy
 
 from Bio import SeqIO
 from Bio.Seq import Seq
@@ -83,13 +83,17 @@ class LibraryFactory(object) :
   @type libraryCoverage: C{int}
   """
 
-  def __init__(self, libraryParameters) :
+  def __init__(self, libraryParameters, rndSeedCorrector = 0) :
     """Constructor.
 
     Takes the LibraryParameters object as a parameter.
     @param libraryParameters: A C{LibraryParameters} instance to describe the
     parameters of the library generation.
     @type libraryParameters: C{class LibraryParameters}
+    @param rndSeedCorrector: A number to be added to the seed of the random
+    number generator to avoid repetition of the same randfom number stream when
+    multiple sequence fiels are provided.
+    @type rndSeedCorrector: C{int}
     """
     if not isinstance(libraryParameters, LibraryParameters) :
       raise StandardError, 'The LibrayFactory object requires a valid LibraryParameters instance to b instantiated.'
@@ -98,6 +102,7 @@ class LibraryFactory(object) :
     self.libraryInsertSD       = libraryParameters.standardDeviation
     self.libraryCoverage       = libraryParameters.coverage
     self.rndSeed               = libraryParameters.rndSeed
+    self.rndSeedCorrector      = rndSeedCorrector
 
 
   def generate_sequencing_library(self, refFastaFile) :
@@ -111,13 +116,14 @@ class LibraryFactory(object) :
     @tyoe refFastaFile: C{'file'} or C{'string'}
     @rtype : C{list} of C{class 'Bio.SeqRecord'}s
     """
-    # Check that fh is a filehandler and not just a filename, the wite method
-    # of SeqIO works perfectly well with filenames but
+    # Check that fh is a filehandler and not just a filename, the write method
+    # of SeqIO works perfectly well with filehanlers but not with filenames.
     if not isinstance(refFastaFile, (file, str,)) :
       raise StandardError, 'Reference fasta file should be either a filehandler or a string of the fasta file name.'
-    # Set the random number generator.
-    rng = random.Random(self.rndSeed)
-    # Initialise the list of library clones
+    # Set the random number generator (add the 1000end multiplicant of the
+    # rndSeedCorrector to avoid seed overlaping).
+    rng = random.Random(self.rndSeed + 1000 * self.rndSeedCorrector)
+    # Initialise the list of library clones.
     libraryClones = []
     # Iterate over the parser object.
     for sequence in SeqIO.parse(refFastaFile, 'fasta') :
@@ -200,7 +206,7 @@ class NGSFactory(object) :
 
 
   def generate_illumina_reads(self) :
-    """Generate Illumina reads.
+    """Generate simulated Illumina reads.
 
     @rtype: C{list} of C{class 'Bio.SeqRecord'}
     """
@@ -211,7 +217,7 @@ class NGSFactory(object) :
       if rn >= 0.5 :
         read1.seq = read1.seq.reverse_complement()
       read1.description = ''
-      read1.id = clone.id + '_read'
+      read1.id = clone.id + '_read_1'
       if self.pairedEnd :
         read2 = clone[(len(clone) - self.readLength):]
         if rn < 0.5 :
@@ -227,7 +233,7 @@ class NGSFactory(object) :
 
 
   def generate_454_reads(self) :
-    """Generate Roche 454 reads.
+    """Generate simulated Roche 454 reads.
 
     """
     pass
@@ -300,7 +306,7 @@ class NGSFactory(object) :
       errorModelDist = generate_error_distribution(errorMin, errorMax, self.readLength - 1)
       # Prepend the error rate for the first position.
       errorModelDist.insert(0, error1)
-      avgError = sum(errorModelDist) / float(len(errorModelDist))
+#      avgError = sum(errorModelDist) / float(len(errorModelDist))
       for read in readList :
         readSeq = read.seq
         # Convert the sequence to mutable so that you can alter it.
@@ -395,6 +401,50 @@ class ParametersParser(object) :
     self.fh = fh
 
 
+  def parse(self) :
+    """Parse the parameters file and populate the instance variables of the
+    relevant parameters objects.
+    """
+
+    def parse_next_parameter_block_header(paramBlock) :
+      """Nested function to parse the next parameter block.
+
+      @param paramBlock: A line from the control paramters file.
+      @type paramBlock: C{'str'}
+      """
+      line = self.fh.readline().strip()
+      if not re.match(paramBlock, line) :
+        raise StandardError, 'Expected "%s", got "%s"' % (paramBlock, line)
+      if paramBlock == 'randomSeed' :
+        return int(line.split(':')[1])
+      elif paramBlock == '#experimentType' :
+        return self.parse_experiment_type_parameters()
+      elif paramBlock == '#LibraryParamaters' :
+        return self.parse_library_parameters()
+      elif paramBlock == '#NGSparameters' :
+        return self.parse_ngs_parameters()
+      elif paramBlock == '#SequenceHomologyParameters' :
+        return self.parse_seq_homol_params()
+      else :
+        raise StandardError, 'parameter block header "%s" is not recognised as a seqEnrichSim parameter block' % paramBlock
+
+    # The implementation of the parser.
+    line = self.fh.readline().strip()
+    if line == '' :
+      raise StandardError, 'expected magic but got EOF'
+    if line != self.magic :
+      raise StandardError, 'File is not starting with magic line "%s", it is not a valid sequence enrichment simulator control parameter file' % self.magic
+    rndSeed = parse_next_parameter_block_header('randomSeed')
+    expP    = parse_next_parameter_block_header('#experimentType')
+    libP    = parse_next_parameter_block_header('#LibraryParamaters')
+    ngsP    = parse_next_parameter_block_header('#NGSparameters')
+    seqHomP = parse_next_parameter_block_header('#SequenceHomologyParameters')
+    # Append the random seed to Parameters subclasses.
+    libP.append(rndSeed)
+    ngsP.append(rndSeed)
+    return Parameters(rndSeed, ExperimentParameters(expP), LibraryParameters(libP), NGSParameters(ngsP), SeqHomologyParameters(seqHomP))
+
+
   def parse_experiment_type_parameters(self) :
     """Parse the experiment type parameters section of the parametrs file.
 
@@ -412,26 +462,15 @@ class ParametersParser(object) :
 
     """
     libraryParamtersList = []
-    line = self.fh.readline().strip()
-    if not re.match('libraryType', line) :
-      raise StandardError, 'Expected "libraryType", got "%s"' % line
-    value = str(line.split(':')[1])
-    libraryParamtersList.append(value)
-    line = self.fh.readline().strip()
-    if not re.match('insertSize', line) :
-      raise StandardError, 'Expected "insertSize", got "%s"' % line
-    value = int(line.split(':')[1])
-    libraryParamtersList.append(value)
-    line = self.fh.readline().strip()
-    if not re.match('standardDeviation', line) :
-      raise StandardError, 'Expected "standardDeviation", got "%s"' % line
-    value = float(line.split(':')[1])
-    libraryParamtersList.append(value)
-    line = self.fh.readline().strip()
-    if not re.match('coverage', line) :
-      raise StandardError, 'Expected "coverage", got "%s"' % line
-    value = int(line.split(':')[1])
-    libraryParamtersList.append(value)
+    # Go over the block line by line
+    lt = self.parse_next_name_value('libraryType')
+    libraryParamtersList.append(str(lt))
+    ins = self.parse_next_name_value('insertSize')
+    libraryParamtersList.append(int(ins))
+    sd = self.parse_next_name_value('standardDeviation')
+    libraryParamtersList.append(int(sd))
+    cv = self.parse_next_name_value('coverage')
+    libraryParamtersList.append(int(cv))
     return libraryParamtersList
 
 
@@ -440,68 +479,67 @@ class ParametersParser(object) :
 
     """
     ngsParameters = []
-    line = self.fh.readline().strip()
-    if not re.match('sequencingPlatform', line) :
-      raise StandardError, 'Expected "sequencingPlatform", got "%s"' % line
-    value = str(line.split(':')[1].strip())
-    ngsParameters.append(value)
-    line = self.fh.readline().strip()
-    if not re.match('readLength', line) :
-      raise StandardError, 'Expected "readLength", got "%s"' % line
-    value = int(line.split(':')[1])
-    ngsParameters.append(value)
-    line = self.fh.readline().strip()
-    if not re.match('pairedEnd', line) :
-      raise StandardError, 'Expected "pairedEnd", got "%s"' % line
-    if str(line.split(':')[1].strip()) == 'True' :
-      value = True
-    elif str(line.split(':')[1].strip()) == 'False' :
-      value = False
+    sp = self.parse_next_name_value('sequencingPlatform')
+    ngsParameters.append(str(sp))
+    rl = self.parse_next_name_value('readLength')
+    ngsParameters.append(int(rl))
+    pe = self.parse_next_name_value('pairedEnd')
+    if pe == 'True' :
+      ngsParameters.append(True)
+    elif pe == 'False' :
+      ngsParameters.append(False)
     else :
-      raise StandardError, 'Value "%s" not supported. Specify one of "True" or "False" for "pairedEnd" field.' % str(line.split(':')[1])
-    ngsParameters.append(value)
-    line = self.fh.readline().strip()
-    if not re.match('errorModel', line) :
-      raise StandardError, 'Expected "errorModel", got "%s"' % line
-    if str(line.split(':')[1].strip()) == 'True' :
-      value = True
-    elif str(line.split(':')[1].strip()) == 'False' :
-      value = False
+      raise StandardError, 'Value "%s" not supported. Specify one of "True" or "False" for "pairedEnd" field.' % pe
+    em = self.parse_next_name_value('errorModel')
+    if em == 'True' :
+      ngsParameters.append(True)
+    elif em == 'False' :
+      ngsParameters.append(False)
     else :
-      raise StandardError, 'Value "%s" not supported. Specify one of "True" or "False" for "errorModel" field.' % str(line.split(':')[1])
-    ngsParameters.append(value)
+      raise StandardError, 'Value "%s" not supported. Specify one of "True" or "False" for "erroModel" field.' % em
     return ngsParameters
 
 
-  def parse(self) :
-    """Parse the parameters file and populate the instance variables of the
-    relevant parameters objects.
+  def parse_seq_homol_params(self) :
+    """Parse the Sequence Homology Parameters section of the control parameters
+    file.
+
+    """
+    seqhParams = []
+    hps = self.parse_next_name_value('hmmProfileFiles')
+    hpsl = []
+    for hp in hps.split(';') :
+      hpsl.append(hp)
+    seqhParams.append(hpsl)
+    evs = self.parse_next_name_value('hmmEvalues')
+    evsl = []
+    for ev in evs.split(';') :
+      evsl.append(ev)
+    seqhParams.append(evsl)
+    blastDB = self.parse_next_name_value('BLASTdatabase')
+    if blastDB == 'None' :
+      blastDB = None
+    seqhParams.append(blastDB)
+    si = self.parse_next_name_value('seqIdentity')
+    seqhParams.append(int(si))
+    sl = self.parse_next_name_value('seqLengthAligned')
+    seqhParams.append(int(sl))
+    return seqhParams
+
+
+
+  def parse_next_name_value(self, name) :
+    """Check a name-colon-value pair line for the correct existence of name,
+    return a list with the name value pair.
+
+    @param name: Specify the name of the name:value pair.
+    @type name: C{'str'}
+    @rtype: C{'str'}
     """
     line = self.fh.readline().strip()
-    if line == '' :
-      raise StandardError, 'expected magic but got EOF'
-    if line != self.magic :
-      raise StandardError, 'File is not starting with magic line "%s", it is not a valid sequence enrichment simulator control parameter file' % self.magic
-    line = self.fh.readline().strip()
-    if not re.match('randomSeed', line) :
-      raise StandardError, 'Expected "randomSeed", got "%s"' % line
-    rndSeed = int(line.split(':')[1])
-    line = self.fh.readline().strip()
-    if not re.match('#experimentType', line) :
-      raise StandardError, 'Expected "#experimentType", got "%s"' % line
-    expP = self.parse_experiment_type_parameters()
-    line = self.fh.readline().strip()
-    if not re.match('#LibraryParamaters', line) :
-      raise StandardError, 'Expected "#LibraryParamaters", got "%s"' % line
-    libP = self.parse_library_parameters()
-    line = self.fh.readline().strip()
-    if not re.match('#NGSparameters', line) :
-      raise StandardError, 'Expected "#NGSparameters", got "%s"' % line
-    ngsP = self.parse_ngs_parameters()
-    # Append the random seed to all the Paramters subclasses.
-    libP.append(rndSeed)
-    ngsP.append(rndSeed)
-    return Parameters(rndSeed, ExperimentParameters(expP), LibraryParameters(libP), NGSParameters(ngsP))
+    if not re.match(name, line) :
+      raise StandardError, 'Expected "%s" got "%s"' % (name, line.split[0])
+    return line.split(':')[1].strip()
 
 
 
@@ -512,15 +550,16 @@ class Parameters(object) :
   Implements a str method to print out parameter name:value pairs.
   """
 
-  def __init__(self, rndSeed, expParams, libraryParams, ngsParams) :
+  def __init__(self, rndSeed, expParams, libraryParams, ngsParams, seqHomolParams) :
     """Constructor.
 
     The class implements a print parameters method.
     """
-    self.rndSeed           = rndSeed
-    self.expParameters     = expParams
-    self.libraryParameters = libraryParams
-    self.ngsParameters     = ngsParams
+    self.rndSeed            = rndSeed
+    self.expParameters      = expParams
+    self.libraryParameters  = libraryParams
+    self.ngsParameters      = ngsParams
+    self.seqHomolParameters = seqHomolParams
 
 
   def __str__(self) :
@@ -540,30 +579,6 @@ class ExperimentParameters(Parameters) :
     """Constructor
     """
     self.experimentType = expParamsList[0]
-
-
-
-class NGSParameters(Parameters) :
-  """Class to represent the next generation sequencing experiment parameters.
-  """
-
-  NGSParametersList = ["", "", "", ""]
-
-  def __init__(self, ngsParamsList) :
-    """Constructor.
-
-    @param ngsParamsList: A list with the NGS params files as they have been
-    parsed from the ParametersParser class.
-    @type ngsParamsList: C{'list'}
-    """
-    # A simple sanity check.
-    if len(ngsParamsList) != len(self.NGSParametersList) + 1 :
-      raise StandardError, "NGS parameters list not the same size to NGS parameters names list."
-    self.sequencingPlatform = ngsParamsList[0]
-    self.readLength         = ngsParamsList[1]
-    self.PE                 = ngsParamsList[2]
-    self.errorModel         = ngsParamsList[3]
-    self.rndSeed            = ngsParamsList[4]
 
 
 
@@ -594,6 +609,47 @@ class LibraryParameters(Parameters) :
     self.standardDeviation = libraryParametersList[2]
     self.coverage          = libraryParametersList[3]
     self.rndSeed           = libraryParametersList[4]
+
+
+
+class NGSParameters(Parameters) :
+  """Class to represent the next generation sequencing experiment parameters.
+  """
+
+  NGSParametersList = ["", "", "", ""]
+
+  def __init__(self, ngsParamsList) :
+    """Constructor.
+
+    @param ngsParamsList: A list with the NGS params files as they have been
+    parsed from the ParametersParser class.
+    @type ngsParamsList: C{'list'}
+    """
+    # A simple sanity check.
+    if len(ngsParamsList) != len(self.NGSParametersList) + 1 :
+      raise StandardError, "NGS parameters list not the same size to NGS parameters names list."
+    self.sequencingPlatform = ngsParamsList[0]
+    self.readLength         = ngsParamsList[1]
+    self.PE                 = ngsParamsList[2]
+    self.errorModel         = ngsParamsList[3]
+    self.rndSeed            = ngsParamsList[4]
+
+
+
+class SeqHomologyParameters(Parameters) :
+  """Class to contain the sequence homology parameters.
+
+  """
+
+  def __init__(self, seqHomParamList) :
+    """The constructor.
+
+    """
+    self.HMMProfiles    = seqHomParamList[0]
+    self.HMMEvalues     = seqHomParamList[1]
+    self.blastDatabase  = seqHomParamList[2]
+    self.seqIdentity    = seqHomParamList[3]
+    self.seqAlignLength = seqHomParamList[4]
 
 
 
@@ -645,14 +701,14 @@ class TranslationFactory(object) :
 
   """
 
-  def __init__(self, seqList) :
+  def __init__(self, ngsSeqFile) :
     """Constructor.
 
-    Takes a list of sequences.
-    @param seqList: A list of the sequences.
-    @type seqList: C{list} of C{class 'Bio.SeqIO.SeqRecord'}
+    Populate the instance variable ngsParser with the appropriate parser.
+    @param ngsSeqFile: A filename or a filehandler containg NGS reads.
+    @type ngsSeqFile: C{'str'} or C{'file'}
     """
-    self.reads = seqList
+    self.ngsParser = SeqIO.parse(ngsSeqFile, "fasta")
 
 
   def __call__(self, frames) :
@@ -668,7 +724,7 @@ class TranslationFactory(object) :
     if (frames < 1) or (6 < frames) :
       raise StandardError, 'The number of frames should be between 1 to 6.'
     translReads = []
-    for read in self.reads :
+    for read in self.ngsParser :
 #      transRead = copy.deepcopy(read)
       readSeq = read.seq
       for i in xrange(frames) :
@@ -698,11 +754,9 @@ def print_SeqRecord_list(seqRecList, fh) :
     raise StandardError, 'Method print library requires an open ready to write filehandler to properly write all the libray clones.'
   for seqRec in seqRecList :
     SeqIO.write(seqRec, fh, 'fasta')
-  if fh is not sys.stdout :
-      fh.close()
 
 
-def parse_hmmsearch_output(hmmSearch, paired = True) :
+def parse_hmmsearch_output(hmmSearch, paired) :
   """Extremly basic parser of the output of the hmmsearch program.
 
   Return only a list with the unique fasta IDs of the hits, as well as their pair
@@ -714,11 +768,34 @@ def parse_hmmsearch_output(hmmSearch, paired = True) :
   @rtype : C{'set'}
   """
   readIDs = []
-  for line in hmmSearch.spilt("\n")
+  # Get the lines that start with >> (hmmsearch output)
+  for line in hmmSearch.split("\n") :
     if re.match('>>', line) :
-      readID = str(line.split()[1])[:-1]
+      # Keep the ID except the last two characters (the frame name)
+      readID = str(line.split()[1])[:-2]
+      readIDs.append(readID)
+  # Return two different list depending on paired ends.
+  if paired :
+    # Remove the paired end ID
+    pReadIDs = [read[:-2] for read in readIDs]
+    pReadIDs = list(set(pReadIDs))
+    readIDs = []
+    for readID in pReadIDs :
       readIDs.append(readID + '_1')
-      if paired :
-        readIDs.append(readID + '_2')
-  return set(readIDs)
+      readIDs.append(readID + '_2')
+    return readIDs
+  else :
+    return list(set(readIDs))
+
+
+def get_fasta_seqIDs(fastaFile, seqIDList) :
+  """Return a list of SeqRecord objects containg the sequences of the provided
+   list.
+
+  """
+  seqRecList = []
+  for sq in SeqIO.parse(fastaFile, "fasta") :
+    if sq.id in seqIDList :
+      seqRecList.append(sq)
+  return seqRecList
 

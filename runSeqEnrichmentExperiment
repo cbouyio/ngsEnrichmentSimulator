@@ -5,55 +5,26 @@
 
 import os
 import sys
-import getopt
+import argparse
 import subprocess
+import shlex
 import re
 
 import seqEnrichSim
 
-def usage() :
-  print """
-  """
 
+# Instantiate the command line parameters parser.
+parser = argparse.ArgumentParser(description='Conduct a sequence enrichment simulator experiments. The series of experiments will be determined by the control parameters file and by the existence of intermediate files in the experimental pipeline.')
+# Construct individual arguments.
+parser.add_argument('-p', '--params', type=str, metavar = '<control_parameters_file>', required = True, help = 'The simulator control parameters file, usualy a .cpf file (compulsory).', dest = 'paramFile')
+parser.add_argument('-i', '--infiles', type=str, metavar = '<template_sequence_FASTA_file>', required = True, nargs = '+', help = 'Whitespace separated filenames, specifying the genomic/transcriptomic template sequence fasta files (compulsory).', dest = 'infileList')
+parser.add_argument('-r', '--seedCorrector', metavar = '<rndSeed_Corrector>', type = int, help = 'A correector for the rndSeed of the library generation procedure, to be used when single sequence template files from the same source are used in each individual run of the simulator.', dest = 'rndSeedCorrector')
 
-# Initialise parameters.
-paramFile = None
+# Generate the arguments list namespace.
+ns = parser.parse_args()
 
-
-# Parse the command line parameters.
-optlist, args = getopt.getopt(sys.argv[1:], 'hp:', ['help'])
-
-for opt, par in optlist :
-  if opt in ('-h', '--help') :
-    usage()
-    sys.exit()
-  if opt == '-p' :
-    paramFile = par
-
-
-# Check for compulsory parameters.
-if not paramFile :
-  raise StandardError, 'Please specify a control parameters file (option -p) it is compulsory for the running of the simulator.'
-
-
-# I/O manipulation.
-if len(args) > 0 :
-  infile = open(args[0], 'r')
-else :
-  infile = sys.stdin
-if len(args) > 1 :
-  if os.path.exists(args[1]) :
-    # Compile the command line call.
-    cmdLine = 'hmmsearch NB-LRR.hmm ' + args[1]
-    # Run the HMM and collect the read names.
-    hmmSearch = subprocess.Popen(cmdLine.split(), stdout=subprocess.PIPE).communicate()[0]
-    for line in hmmSearch.split("\n") :
-      if re.match('>>', line) :
-        print line
-    sys.exit()
-  outfile = open(args[1], 'w')
-else :
-  outfile = sys.stdout
+# Get a list of the basenames of the arguments of the input file list.
+basenamesList = [os.path.splitext(os.path.split(name)[1])[0] for name in ns.infileList]
 
 
 ################
@@ -61,37 +32,66 @@ else :
 ################
 
 # Instantiate the parser of the control parameters file.
-cpParser = seqEnrichSim.ParametersParser(paramFile)
-
-# Parse the file.
+cpParser = seqEnrichSim.ParametersParser(ns.paramFile)
+# Parse the control parameters.
 cParams = cpParser.parse()
 
-# Instantiate the library factory.
-libFact = seqEnrichSim.LibraryFactory(cParams.libraryParameters)
+## The various components of the simulator will be checked and executed here.
 
-# Generate the sequencing library.
-lib = libFact.generate_sequencing_library(infile)
+# Generate the NGS filenames.
+ngsType = cParams.ngsParameters.sequencingPlatform
+ngsFilesList = [name + '_' + ngsType + 'Reads.fasta' for name in basenamesList]
 
-# Instantiate the NGS factory.
-ngsFact = seqEnrichSim.NGSFactory(cParams.ngsParameters, lib)
+# Run the NGS simulation for the files that is needed.
+rndSeedCorr = 0
+for i in xrange(len(ngsFilesList)) :
+  if not os.path.exists(ngsFilesList[i]) :
+    # Instantiate the library factory.
+    libFact = seqEnrichSim.LibraryFactory(cParams.libraryParameters, rndSeedCorr)
+    # Generate the sequencing library.
+    libFragments = libFact.generate_sequencing_library(ns.infileList[i])
+    # Instantiate the NGS factory.
+    ngsFact = seqEnrichSim.NGSFactory(cParams.ngsParameters, libFragments)
+    # Generate NGS reads.
+    ngsReads = ngsFact.generate_ngs_reads()
+    # Write them on the file.
+    ngsFH = open(ngsFilesList[i], 'w')
+    seqEnrichSim.print_SeqRecord_list(ngsReads, ngsFH)
+  rndSeedCorr = rndSeedCorr + 1
 
-# Generate NGS reads.
-ngsReads = ngsFact.generate_ngs_reads()
+# Generate the sequence homology filenames.
+seqHomolOufiles = [name + '_SeqHomol.fasta' for name in basenamesList]
 
-# Generate the 6 frames of the reads.
-translFact = seqEnrichSim.TranslationFactory(ngsReads)
-translReads = translFact(6)
+# Get the sequence homology parameters object.
+seqHomParams = cParams.seqHomolParameters
 
-# print.
-seqEnrichSim.print_SeqRecord_list(translReads, outfile)
+# Check the existence of the selected reads FASTA file.
+for i in xrange(len(seqHomolOufiles)) :
+  if not os.path.exists(seqHomolOufiles[i]) :
+    # Generate a temporary file to hold the 6 open reading frames for each
+    # read.
+    translTMPfile = ngsFilesList[i] + "._TMP"
+    translCmd = 'transeq -frame 6 ' + ngsFilesList[i] + ' ' + translTMPfile
+    # Execute the translation.
+    subprocess.call(shlex.split(translCmd), bufsize = -1)
+    # Run the HMM profiles
+    fastaIDs = []
+    for j in xrange(len(seqHomParams.HMMProfiles)) :
+      # Compile the command line call.
+      hmmcmdLine = 'hmmsearch -E ' + seqHomParams.HMMEvalues[j] + ' ' + seqHomParams.HMMProfiles[j] + ' ' + translTMPfile
+      # Run the HMM and collect the read names.
+      hmmSearch = subprocess.Popen(shlex.split(hmmcmdLine), bufsize = -1, stdout=subprocess.PIPE).communicate()[0]
+      fastaIDs = fastaIDs + seqEnrichSim.parse_hmmsearch_output(hmmSearch, cParams.ngsParameters.PE)
+#TODO  Put the BLAST search somewhere here
+    # Keep only the unique IDs
+    uniqFastaIDs = list(set(fastaIDs))
+    # Delete the TMP file.
+    os.remove(translTMPfile)
+    # Retrive the reads that passed the seq homology step before.
+    seqHomolRecs = seqEnrichSim.get_fasta_seqIDs(ngsFilesList[i], uniqFastaIDs)
+    # Print the sequences ot the relative file.
+    seqHomolFH = open(seqHomolOufiles[i], 'w')
+    seqEnrichSim.print_SeqRecord_list(seqHomolRecs, seqHomolFH)
 
-# Compile the command line call.
-cmdLine = 'hmmsearch NB-LRR.hmm ' + outfile.name
-
-# Run the HMM and collect the read names.
-hmmSearch = subprocess.Popen(cmdLine.split()).communicate()[0]
-
-for line in hmmSearch :
-  if re.match('>>', line) :
-    print line
+# Sequence assembly.
 

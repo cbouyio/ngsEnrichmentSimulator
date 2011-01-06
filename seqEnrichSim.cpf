@@ -1,24 +1,24 @@
 #sequenceEnrichmentParameters
 randomSeed : 1
 #experimentType
-sequencingSimulator      : True
-sequenceHomologySearches : True
-sequenceEnrichmentArray  : True
-sequenceAssembly         : True
+test
 #LibraryParamaters
 libraryType        : genomicDNA
 insertSize         : 300
 standardDeviation  : 50
-coverage           : 12
+coverage           : 5
 #NGSparameters
 sequencingPlatform : Illumina
 readLength         : 100
 pairedEnd          : True
 errorModel         : True
 #SequenceHomologyParameters
-hmmProfileFile : NBS-LRR.hmm
-BLASTdatabase  : False
+hmmProfileFiles  : NB-ARC.hmm;LRR_1.hmm
+hmmEvalues       : 1;1
+BLASTdatabase    : None
+seqIdentity      : 85
+seqLengthAligned : 85
 #SequenceEnrichmentParameters
 -
-#AssemblyParamters
+#AssemblyParameters
 -
