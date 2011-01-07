@@ -1,0 +1,13 @@
+Next generation sequencing simulator, sequence enrichment simulator and
+related computational tools to perform bioinformatics analysis of
+sequences of interest, based on comparative genomics / HMM / sequence
+homology / phylogenetics information.
+
+Various pure python modules represent different procedures of the approaches.
+
+A run python script conducts the experiments.
+
+A control parameters file holds the neccessary parameters to perform the
+various experiments.
+
+Developed by cbouyio @ TSL since Nov 2010
