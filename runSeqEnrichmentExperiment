@@ -78,7 +78,7 @@ for i in xrange(len(seqHomolOufiles)) :
     fastaIDs = []
     for j in xrange(len(seqHomParams.HMMProfiles)) :
       # Compile the command line call.
-      hmmcmdLine = 'hmmsearch -E ' + seqHomParams.HMMEvalues[j] + ' ' + seqHomParams.HMMProfiles[j] + ' ' + translTMPfile
+      hmmcmdLine = 'hmmsearch --domE ' + seqHomParams.HMMEvalues[j] + ' ' + seqHomParams.HMMProfiles[j] + ' ' + translTMPfile
       # Run the HMM and collect the read names.
       hmmSearch = subprocess.Popen(shlex.split(hmmcmdLine), bufsize = -1, stdout=subprocess.PIPE).communicate()[0]
       fastaIDs = fastaIDs + seqEnrichSim.parse_hmmsearch_output(hmmSearch, cParams.ngsParameters.PE)
