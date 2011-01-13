@@ -11,7 +11,7 @@ r=1;
 # Get all the command line arguments as the input filenames.
 for f in $@;
 do
-  bsub -o ${cwd}_LSF.out -x -q 16gb runSeqEnrichmentExperiment -p seqEnrichSim.cpf -i ${f} -r ${r} ;
+  bsub -o ${cwd}_LSF.out -x -q 32gb runSeqEnrichmentExperiment -p seqEnrichSim.cpf -i ${f} -r ${r} ;
   r=`expr $r + 1`
 done
 

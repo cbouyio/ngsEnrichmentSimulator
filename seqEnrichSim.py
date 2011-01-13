@@ -113,7 +113,7 @@ class LibraryFactory(object) :
     @param refFastaFile: A fasta file containing the reference genome. Either a
     multi-fasta files or single fasta entry files are supported. The file can
     either come as a filehandler or as a filename string.
-    @tyoe refFastaFile: C{'file'} or C{'string'}
+    @type refFastaFile: C{'file'} or C{'string'}
     @rtype : C{list} of C{class 'Bio.SeqRecord'}s
     """
     # Check that fh is a filehandler and not just a filename, the write method
@@ -595,10 +595,10 @@ class LibraryParameters(Parameters) :
   def __init__(self, libraryParametersList) :
     """Constructor.
 
-    @param libraryParametersRecord: A list of the parameter values from the
+    @param libraryParametersList: A list of the parameter values from the
     parameter file. The paremeter file parses shouls take care for the
     consistency of this list.
-    @type libraryParametersRecord: C{list}
+    @type libraryParametersList: C{list}
     """
     # Some sanity checks (the + 1 is required as the random seed is also passed
     # to all the suclasses of parameters.
