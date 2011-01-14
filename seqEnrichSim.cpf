@@ -18,7 +18,9 @@ hmmEvalues       : 1;1
 BLASTdatabase    : None
 seqIdentity      : 85
 seqLengthAligned : 85
-#SequenceEnrichmentParameters
--
 #AssemblyParameters
+assembler         : velvet
+kmerSizes         : 49;53;57;61
+referenceAssembly : filename
+#SequenceEnrichmentParameters
 -

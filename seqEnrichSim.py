@@ -370,6 +370,38 @@ class NGSFactory(object) :
 
 
 
+class AssemblyFactory(object) :
+  """Class to take care of the deNovo assemblies, assess the quality and
+  compare with the reference assembly.
+
+  """
+
+  def __init__(self, assParams) :
+    """The constructor.
+
+    """
+
+
+  def __call__(self, readsFastaFile) :
+    """Caller. It actually prerformas the denovo assembly.
+
+    """
+
+
+  def assembly_quality(self, contigsFile) :
+    """Method to perform quality control of the assembly.
+
+    """
+
+
+  def assembly_comparison(self, contigsFile, referenceFile) :
+    """Method to perform a comparison of a given assembly with a refference
+    one.
+
+    """
+
+
+
 class ParametersParser(object) :
   """Class to represent a parameters file parser.
 
@@ -425,6 +457,8 @@ class ParametersParser(object) :
         return self.parse_ngs_parameters()
       elif paramBlock == '#SequenceHomologyParameters' :
         return self.parse_seq_homol_params()
+      elif paramBlock == '#AssemblyParameters' :
+        return self.parse_assembly_params()
       else :
         raise StandardError, 'parameter block header "%s" is not recognised as a seqEnrichSim parameter block' % paramBlock
 
@@ -439,10 +473,11 @@ class ParametersParser(object) :
     libP    = parse_next_parameter_block_header('#LibraryParamaters')
     ngsP    = parse_next_parameter_block_header('#NGSparameters')
     seqHomP = parse_next_parameter_block_header('#SequenceHomologyParameters')
+    assP    = parse_next_parameter_block_header('#AssemblyParameters')
     # Append the random seed to Parameters subclasses.
     libP.append(rndSeed)
     ngsP.append(rndSeed)
-    return Parameters(rndSeed, ExperimentParameters(expP), LibraryParameters(libP), NGSParameters(ngsP), SeqHomologyParameters(seqHomP))
+    return Parameters(rndSeed, ExperimentParameters(expP), LibraryParameters(libP), NGSParameters(ngsP), SeqHomologyParameters(seqHomP), AssemblyParameters(assP))
 
 
   def parse_experiment_type_parameters(self) :
@@ -527,6 +562,22 @@ class ParametersParser(object) :
     return seqhParams
 
 
+  def parse_assembly_params(self) :
+    """Parse the Assembly Parameters block of the control parameters file.
+
+    """
+    assParams = []
+    ass = self.parse_next_name_value('assembler')
+    assParams.append(ass)
+    kmers = self.parse_next_name_value('kmerSize')
+    kml = []
+    for km in kmers.split(';') :
+      kml.append(int(km))
+    assParams.append(kml)
+    assRef = self.parse_next_name_value('referenceAssembly')
+    assParams.append(assRef)
+    return assParams
+
 
   def parse_next_name_value(self, name) :
     """Check a name-colon-value pair line for the correct existence of name,
@@ -550,7 +601,7 @@ class Parameters(object) :
   Implements a str method to print out parameter name:value pairs.
   """
 
-  def __init__(self, rndSeed, expParams, libraryParams, ngsParams, seqHomolParams) :
+  def __init__(self, rndSeed, expParams, libraryParams, ngsParams, seqHomolParams, assParams) :
     """Constructor.
 
     The class implements a print parameters method.
@@ -560,6 +611,7 @@ class Parameters(object) :
     self.libraryParameters  = libraryParams
     self.ngsParameters      = ngsParams
     self.seqHomolParameters = seqHomolParams
+    self.assemblyParameters = assParams
 
 
   def __str__(self) :
@@ -650,6 +702,21 @@ class SeqHomologyParameters(Parameters) :
     self.blastDatabase  = seqHomParamList[2]
     self.seqIdentity    = seqHomParamList[3]
     self.seqAlignLength = seqHomParamList[4]
+
+
+
+class AssemblyParameters(Parameters) :
+  """Container class of the assembly program and reference control parameters.
+
+  """
+
+  def __init__(self, assParamList) :
+    """The constructor...
+
+    """
+    self.assemblyProgram       = assParamList[0]
+    self.assemblyKmerSizeList  = assParamList[1]
+    self.assemblyReferenceFile = assParamList[2]
 
 
 
