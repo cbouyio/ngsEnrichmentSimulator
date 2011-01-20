@@ -16,11 +16,11 @@ the lisence is kept free.
 """
 
 
-
-import sys
 import re
 import random
 import string
+import subprocess
+import shlex
 #import copy
 
 from Bio import SeqIO
@@ -28,6 +28,7 @@ from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
 from Bio.Alphabet import IUPAC
 
+import FastxMetrics
 
 
 class AbstactReference(object) :
@@ -751,22 +752,48 @@ class AssemblyFactory(object) :
 
   """
 
-  def __init__(self, assParams) :
+  def __init__(self, assParams, libParams) :
     """The constructor.
 
     """
+    self.assembler     = assParams.assemblyProgram
+    self.kmers         = assParams.assemblyKmerSizeList
+    self.referenceFile = assParams.assemblyReferenceFile
+    self.insSize       = libParams.insertSize
+    self.libSD         = libParams.standardDeviation
 
 
   def __call__(self, readsFastaFile) :
-    """Caller. It actually prerformas the denovo assembly.
+    """Caller It actually prerforms the denovo assembly and selects the one
+    with the highest N50.
 
     """
+    N50 = 0
+    returnFile = ''
+    if not self.assembler == 'velvet' :
+      raise StandardError, 'Only the velvet assembler is supported at the moment.'
+    else :
+      for kmer in self.kmers :
+        velvethCmd = 'velveth velvetAssembly_k' + str(kmer) + ' ' + str(kmer) + '-shortPaired -fasta ' + str(readsFastaFile)
+        velvetgCmd = 'velvetg velvetAssembly_k' + str(kmer) + ' -ins_length_sd ' + str(self.libSD) +  ' -ins_length ' + str(self.insSize)
+        print velvetgCmd
+        # Execute the translation.
+        subprocess.call(shlex.split(velvethCmd), bufsize = -1)
+        subprocess.call(shlex.split(velvetgCmd), bufsize = -1)
+        # Evaluate the assembly quality.
+        contigsFile = 'velvetAssembly_k' + str(kmer) + '/contigs.fa'
+        contigN50 = FastxMetrics.calculate_N50(contigsFile)
+        if contigN50 > N50 :
+          returnFile = contigsFile
+          N50 = contigN50
+    return returnFile
 
 
   def assembly_quality(self, contigsFile) :
     """Method to perform quality control of the assembly.
 
     """
+    pass
 
 
   def assembly_comparison(self, contigsFile, referenceFile) :

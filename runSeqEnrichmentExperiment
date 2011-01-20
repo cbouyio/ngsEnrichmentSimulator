@@ -93,5 +93,16 @@ for i in xrange(len(seqHomolOufiles)) :
     seqHomolFH = open(seqHomolOufiles[i], 'w')
     seqEnrichSim.print_SeqRecord_list(seqHomolRecs, seqHomolFH)
 
-# Sequence assembly.
+# Generate the sequence assembly filenames.
+assemblyOutfiles = [name + '_Assemblies.fasta' for name in basenamesList]
 
+# Getthe assembly parameters.
+assParams = cParams.assemblyParameters
+
+# Check the existence of assembly files.
+for j in xrange(len(assemblyOutfiles)) :
+  if not os.path.exists(assemblyOutfiles[j]) :
+    # Conduct the assembly.
+    assFact = seqEnrichSim.AssemblyFactory(assParams, cParams.libraryParameters)
+    contigsFile = assFact(seqHomolOufiles[j])
+    print contigsFile
