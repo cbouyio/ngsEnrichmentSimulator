@@ -10,6 +10,6 @@ install : ${PYTHONMODULES}
 	python setup.py install --home=${HOME}
 
 clean :
-	rm -rf html build *.pyc
+	rm -rf html build *.pyc *_SeqHomol.fasta *_IlluminaReads.fasta
 
 .PHONY : install clean

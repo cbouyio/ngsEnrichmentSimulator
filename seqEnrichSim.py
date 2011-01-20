@@ -1,7 +1,20 @@
 #!/usr/bin/env python
 
-# Python module to simulate the sequence enrichment experiment.
-# Developed by C. Bouyioukos @TSL, Nov 2010.
+
+"""
+Python module to conduct sequencing simulators.
+
+@author: Costas Bouyioukos
+@organization: The Sainsbury Laboratory
+@since: Novemeber 2011
+@copyright: The program is coming as it is. You have the right to redistribute,
+transform and change the source code presuming the apropriate reference and
+the lisence is kept free.
+@license: GNU GPL3 or newer.
+@contact: U{Costas Bouyioukos<mailto:k.bouyioukos@uea.ac.uk>}
+@version: 0.0.1
+"""
+
 
 
 import sys
@@ -16,6 +29,7 @@ from Bio.SeqRecord import SeqRecord
 from Bio.Alphabet import IUPAC
 
 
+
 class AbstactReference(object) :
   """Base to represent a reference sequence.
 
@@ -28,6 +42,49 @@ class AbstactReference(object) :
     individualy.
     """
     raise StandardError, 'cannot instantiate AbstactReference class'
+
+
+
+class GenomeSequence(AbstactReference) :
+  """Class to represent a genome derived collection of sequences.
+
+  @ivar refGenerator: An iterator wich yields the next fasta record in each
+  invocation.
+  @type refGenerator: C{class 'Generator'}
+  """
+
+  def __init__(self, refFile, refFileType) :
+    """Constructor takes a fatsa file with the reference Genome sequence.
+
+    Constructs a Biopyhon file parser object.
+    @param refFile: An open ready to read Python file object or the name of the
+    file  containing the reference genomic sequences.
+    @type refFile: C{file} or C{string}
+    @param refFileType: A field to designate the type of the reference sequence
+    file. Only the "fasta"
+    file format is supported at the time.
+    @type refFileType: C{string}
+    """
+    if refFileType == "fasta":
+      self.refGenerator = SeqIO.parse(refFile, refFileType, IUPAC.unambiguous_dna)
+    else :
+      raise StandardError, 'Only fasta format is supporting by the module at the moment...'
+
+
+
+class TranscirptomeSequence(AbstactReference) :
+  """Class to represent a trnascriptome derived collection of sequences.
+  """
+
+  def __init__(self, refFasta) :
+    """Constructor takes a fatsa file with the reference Transcriptome sequence
+
+    """
+
+  def next(self) :
+    """Return the next fasta sequence
+
+    """
 
 
 
@@ -66,6 +123,324 @@ class CaptureArray(object) :
     """Constructor.
 
     """
+
+
+
+class ParametersParser(object) :
+  """Class to represent a parameters file parser.
+
+  Parse the control paremeters file and constructs the appropriate parameter
+  objects.
+  The parameters names are appearing as class variables. Any change to the
+  paramters file format should be reflected here too.
+  """
+
+  # Class variables to specify the control parameters file attributes.
+  magic = '#sequenceEnrichmentParameters'
+  parametersIdentifiers = ["experimentType", "LibraryParamaters"]
+  experimentTypeValues = ["test", "partialKnowledge"]
+
+  def __init__(self, parametersFile) :
+    """Constructor
+
+    The constructor checks for the magic line in the parameters file.
+    @param parametersFile: Text file containing the control parameters of the
+    experiment. Either a filehandler or a string with the filename.
+    @type parametersFile: C{file} or C{str}
+    """
+    if isinstance(parametersFile, str) :
+      fh = open(parametersFile, 'r')
+    elif isinstance(parametersFile, file) :
+      fh = parametersFile
+    else :
+      raise StandardError, 'Please specify a filename or an open filehandler as a parameters file argument.'
+    self.fh = fh
+
+
+  def parse(self) :
+    """Parse the parameters file and populate the instance variables of the
+    relevant parameters objects.
+    """
+
+    def parse_next_parameter_block_header(paramBlock) :
+      """Nested function to parse the next parameter block.
+
+      @param paramBlock: A line from the control paramters file.
+      @type paramBlock: C{'str'}
+      """
+      line = self.fh.readline().strip()
+      if not re.match(paramBlock, line) :
+        raise StandardError, 'Expected "%s", got "%s"' % (paramBlock, line)
+      if paramBlock == 'randomSeed' :
+        return int(line.split(':')[1])
+      elif paramBlock == '#experimentType' :
+        return self.parse_experiment_type_parameters()
+      elif paramBlock == '#LibraryParamaters' :
+        return self.parse_library_parameters()
+      elif paramBlock == '#NGSparameters' :
+        return self.parse_ngs_parameters()
+      elif paramBlock == '#SequenceHomologyParameters' :
+        return self.parse_seq_homol_params()
+      elif paramBlock == '#AssemblyParameters' :
+        return self.parse_assembly_params()
+      else :
+        raise StandardError, 'parameter block header "%s" is not recognised as a seqEnrichSim parameter block' % paramBlock
+
+    # The implementation of the parser.
+    line = self.fh.readline().strip()
+    if line == '' :
+      raise StandardError, 'expected magic but got EOF'
+    if line != self.magic :
+      raise StandardError, 'File is not starting with magic line "%s", it is not a valid sequence enrichment simulator control parameter file' % self.magic
+    rndSeed = parse_next_parameter_block_header('randomSeed')
+    expP    = parse_next_parameter_block_header('#experimentType')
+    libP    = parse_next_parameter_block_header('#LibraryParamaters')
+    ngsP    = parse_next_parameter_block_header('#NGSparameters')
+    seqHomP = parse_next_parameter_block_header('#SequenceHomologyParameters')
+    assP    = parse_next_parameter_block_header('#AssemblyParameters')
+    # Append the random seed to Parameters subclasses.
+    libP.append(rndSeed)
+    ngsP.append(rndSeed)
+    return Parameters(rndSeed, ExperimentParameters(expP), LibraryParameters(libP), NGSParameters(ngsP), SeqHomologyParameters(seqHomP), AssemblyParameters(assP))
+
+
+  def parse_experiment_type_parameters(self) :
+    """Parse the experiment type parameters section of the parametrs file.
+
+    """
+    experimetTypeParamsList = []
+    line = self.fh.readline().strip()
+    if line not in self.experimentTypeValues :
+      raise StandardError, 'Exteriment type not supported. Please specify one of the %s' % self.experimentTypeValues
+    experimetTypeParamsList.append(line)
+    return experimetTypeParamsList
+
+
+  def parse_library_parameters(self) :
+    """Parse the library control parameters section of the parameters file.
+
+    """
+    libraryParamtersList = []
+    # Go over the block line by line
+    lt = self.parse_next_name_value('libraryType')
+    libraryParamtersList.append(str(lt))
+    ins = self.parse_next_name_value('insertSize')
+    libraryParamtersList.append(int(ins))
+    sd = self.parse_next_name_value('standardDeviation')
+    libraryParamtersList.append(int(sd))
+    cv = self.parse_next_name_value('coverage')
+    libraryParamtersList.append(int(cv))
+    return libraryParamtersList
+
+
+  def parse_ngs_parameters(self) :
+    """Parse the NGS parameters section of the control parameters file.
+
+    """
+    ngsParameters = []
+    sp = self.parse_next_name_value('sequencingPlatform')
+    ngsParameters.append(str(sp))
+    rl = self.parse_next_name_value('readLength')
+    ngsParameters.append(int(rl))
+    pe = self.parse_next_name_value('pairedEnd')
+    if pe == 'True' :
+      ngsParameters.append(True)
+    elif pe == 'False' :
+      ngsParameters.append(False)
+    else :
+      raise StandardError, 'Value "%s" not supported. Specify one of "True" or "False" for "pairedEnd" field.' % pe
+    em = self.parse_next_name_value('errorModel')
+    if em == 'True' :
+      ngsParameters.append(True)
+    elif em == 'False' :
+      ngsParameters.append(False)
+    else :
+      raise StandardError, 'Value "%s" not supported. Specify one of "True" or "False" for "erroModel" field.' % em
+    return ngsParameters
+
+
+  def parse_seq_homol_params(self) :
+    """Parse the Sequence Homology Parameters section of the control parameters
+    file.
+
+    """
+    seqhParams = []
+    hps = self.parse_next_name_value('hmmProfileFiles')
+    hpsl = []
+    for hp in hps.split(';') :
+      hpsl.append(hp)
+    seqhParams.append(hpsl)
+    evs = self.parse_next_name_value('hmmEvalues')
+    evsl = []
+    for ev in evs.split(';') :
+      evsl.append(ev)
+    seqhParams.append(evsl)
+    blastDB = self.parse_next_name_value('BLASTdatabase')
+    if blastDB == 'None' :
+      blastDB = None
+    seqhParams.append(blastDB)
+    si = self.parse_next_name_value('seqIdentity')
+    seqhParams.append(int(si))
+    sl = self.parse_next_name_value('seqLengthAligned')
+    seqhParams.append(int(sl))
+    return seqhParams
+
+
+  def parse_assembly_params(self) :
+    """Parse the Assembly Parameters block of the control parameters file.
+
+    """
+    assParams = []
+    ass = self.parse_next_name_value('assembler')
+    assParams.append(ass)
+    kmers = self.parse_next_name_value('kmerSize')
+    kml = []
+    for km in kmers.split(';') :
+      kml.append(int(km))
+    assParams.append(kml)
+    assRef = self.parse_next_name_value('referenceAssembly')
+    assParams.append(assRef)
+    return assParams
+
+
+  def parse_next_name_value(self, name) :
+    """Check a name-colon-value pair line for the correct existence of name,
+    return a list with the name value pair.
+
+    @param name: Specify the name of the name:value pair.
+    @type name: C{'str'}
+    @rtype: C{'str'}
+    """
+    line = self.fh.readline().strip()
+    if not re.match(name, line) :
+      raise StandardError, 'Expected "%s" got "%s"' % (name, line.split[0])
+    return line.split(':')[1].strip()
+
+
+
+class Parameters(object) :
+  """Superclass of the paramters objects.
+
+  Keeps the random number generator object of the experiment.
+  Implements a str method to print out parameter name:value pairs.
+  """
+
+  def __init__(self, rndSeed, expParams, libraryParams, ngsParams, seqHomolParams, assParams) :
+    """Constructor.
+
+    The class implements a print parameters method.
+    """
+    self.rndSeed            = rndSeed
+    self.expParameters      = expParams
+    self.libraryParameters  = libraryParams
+    self.ngsParameters      = ngsParams
+    self.seqHomolParameters = seqHomolParams
+    self.assemblyParameters = assParams
+
+
+  def __str__(self) :
+    """Method to print the name:value parameter pairs.
+
+    """
+    pass
+
+
+
+class ExperimentParameters(Parameters) :
+  """Class to represent the experiment type parameters.
+
+  """
+
+  def __init__(self, expParamsList) :
+    """Constructor
+    """
+    self.experimentType = expParamsList[0]
+
+
+
+class LibraryParameters(Parameters) :
+  """Class to represent the library generation parameters.
+
+  The expected library parameters are represented by a list as a class variable.
+  The order of the list specifies the order the parameters should be found in
+  the parameters file record.
+  """
+
+  libraryParameterNames = ["libraryType", "insertSize", "standardDeviation", "coverage"]
+
+  def __init__(self, libraryParametersList) :
+    """Constructor.
+
+    @param libraryParametersList: A list of the parameter values from the
+    parameter file. The paremeter file parses shouls take care for the
+    consistency of this list.
+    @type libraryParametersList: C{list}
+    """
+    # Some sanity checks (the + 1 is required as the random seed is also passed
+    # to all the suclasses of parameters.
+    if len(self.libraryParameterNames) + 1 != len(libraryParametersList) :
+      raise StandardError, "Library parameters list not the same size to library parameters names list."
+    self.libraryType       = libraryParametersList[0]
+    self.insertSize        = libraryParametersList[1]
+    self.standardDeviation = libraryParametersList[2]
+    self.coverage          = libraryParametersList[3]
+    self.rndSeed           = libraryParametersList[4]
+
+
+
+class NGSParameters(Parameters) :
+  """Class to represent the next generation sequencing experiment parameters.
+  """
+
+  NGSParametersList = ["", "", "", ""]
+
+  def __init__(self, ngsParamsList) :
+    """Constructor.
+
+    @param ngsParamsList: A list with the NGS params files as they have been
+    parsed from the ParametersParser class.
+    @type ngsParamsList: C{'list'}
+    """
+    # A simple sanity check.
+    if len(ngsParamsList) != len(self.NGSParametersList) + 1 :
+      raise StandardError, "NGS parameters list not the same size to NGS parameters names list."
+    self.sequencingPlatform = ngsParamsList[0]
+    self.readLength         = ngsParamsList[1]
+    self.PE                 = ngsParamsList[2]
+    self.errorModel         = ngsParamsList[3]
+    self.rndSeed            = ngsParamsList[4]
+
+
+
+class SeqHomologyParameters(Parameters) :
+  """Class to contain the sequence homology parameters.
+
+  """
+
+  def __init__(self, seqHomParamList) :
+    """The constructor.
+
+    """
+    self.HMMProfiles    = seqHomParamList[0]
+    self.HMMEvalues     = seqHomParamList[1]
+    self.blastDatabase  = seqHomParamList[2]
+    self.seqIdentity    = seqHomParamList[3]
+    self.seqAlignLength = seqHomParamList[4]
+
+
+
+class AssemblyParameters(Parameters) :
+  """Container class of the assembly program and reference control parameters.
+
+  """
+
+  def __init__(self, assParamList) :
+    """The constructor...
+
+    """
+    self.assemblyProgram       = assParamList[0]
+    self.assemblyKmerSizeList  = assParamList[1]
+    self.assemblyReferenceFile = assParamList[2]
 
 
 
@@ -399,367 +774,6 @@ class AssemblyFactory(object) :
     one.
 
     """
-
-
-
-class ParametersParser(object) :
-  """Class to represent a parameters file parser.
-
-  Parse the control paremeters file and constructs the appropriate parameter
-  objects.
-  The parameters names are appearing as class variables. Any change to the
-  paramters file format should be reflected here too.
-  """
-
-  # Class variables to specify the control parameters file attributes.
-  magic = '#sequenceEnrichmentParameters'
-  parametersIdentifiers = ["experimentType", "LibraryParamaters"]
-  experimentTypeValues = ["test", "partialKnowledge"]
-
-  def __init__(self, parametersFile) :
-    """Constructor
-
-    The constructor checks for the magic line in the parameters file.
-    @param parametersFile: Text file containing the control parameters of the
-    experiment. Either a filehandler or a string with the filename.
-    @type parametersFile: C{file} or C{str}
-    """
-    if isinstance(parametersFile, str) :
-      fh = open(parametersFile, 'r')
-    elif isinstance(parametersFile, file) :
-      fh = parametersFile
-    else :
-      raise StandardError, 'Please specify a filename or an open filehandler as a parameters file argument.'
-    self.fh = fh
-
-
-  def parse(self) :
-    """Parse the parameters file and populate the instance variables of the
-    relevant parameters objects.
-    """
-
-    def parse_next_parameter_block_header(paramBlock) :
-      """Nested function to parse the next parameter block.
-
-      @param paramBlock: A line from the control paramters file.
-      @type paramBlock: C{'str'}
-      """
-      line = self.fh.readline().strip()
-      if not re.match(paramBlock, line) :
-        raise StandardError, 'Expected "%s", got "%s"' % (paramBlock, line)
-      if paramBlock == 'randomSeed' :
-        return int(line.split(':')[1])
-      elif paramBlock == '#experimentType' :
-        return self.parse_experiment_type_parameters()
-      elif paramBlock == '#LibraryParamaters' :
-        return self.parse_library_parameters()
-      elif paramBlock == '#NGSparameters' :
-        return self.parse_ngs_parameters()
-      elif paramBlock == '#SequenceHomologyParameters' :
-        return self.parse_seq_homol_params()
-      elif paramBlock == '#AssemblyParameters' :
-        return self.parse_assembly_params()
-      else :
-        raise StandardError, 'parameter block header "%s" is not recognised as a seqEnrichSim parameter block' % paramBlock
-
-    # The implementation of the parser.
-    line = self.fh.readline().strip()
-    if line == '' :
-      raise StandardError, 'expected magic but got EOF'
-    if line != self.magic :
-      raise StandardError, 'File is not starting with magic line "%s", it is not a valid sequence enrichment simulator control parameter file' % self.magic
-    rndSeed = parse_next_parameter_block_header('randomSeed')
-    expP    = parse_next_parameter_block_header('#experimentType')
-    libP    = parse_next_parameter_block_header('#LibraryParamaters')
-    ngsP    = parse_next_parameter_block_header('#NGSparameters')
-    seqHomP = parse_next_parameter_block_header('#SequenceHomologyParameters')
-    assP    = parse_next_parameter_block_header('#AssemblyParameters')
-    # Append the random seed to Parameters subclasses.
-    libP.append(rndSeed)
-    ngsP.append(rndSeed)
-    return Parameters(rndSeed, ExperimentParameters(expP), LibraryParameters(libP), NGSParameters(ngsP), SeqHomologyParameters(seqHomP), AssemblyParameters(assP))
-
-
-  def parse_experiment_type_parameters(self) :
-    """Parse the experiment type parameters section of the parametrs file.
-
-    """
-    experimetTypeParamsList = []
-    line = self.fh.readline().strip()
-    if line not in self.experimentTypeValues :
-      raise StandardError, 'Exteriment type not supported. Please specify one of the %s' % self.experimentTypeValues
-    experimetTypeParamsList.append(line)
-    return experimetTypeParamsList
-
-
-  def parse_library_parameters(self) :
-    """Parse the library control parameters section of the parameters file.
-
-    """
-    libraryParamtersList = []
-    # Go over the block line by line
-    lt = self.parse_next_name_value('libraryType')
-    libraryParamtersList.append(str(lt))
-    ins = self.parse_next_name_value('insertSize')
-    libraryParamtersList.append(int(ins))
-    sd = self.parse_next_name_value('standardDeviation')
-    libraryParamtersList.append(int(sd))
-    cv = self.parse_next_name_value('coverage')
-    libraryParamtersList.append(int(cv))
-    return libraryParamtersList
-
-
-  def parse_ngs_parameters(self) :
-    """Parse the NGS parameters section of the control parameters file.
-
-    """
-    ngsParameters = []
-    sp = self.parse_next_name_value('sequencingPlatform')
-    ngsParameters.append(str(sp))
-    rl = self.parse_next_name_value('readLength')
-    ngsParameters.append(int(rl))
-    pe = self.parse_next_name_value('pairedEnd')
-    if pe == 'True' :
-      ngsParameters.append(True)
-    elif pe == 'False' :
-      ngsParameters.append(False)
-    else :
-      raise StandardError, 'Value "%s" not supported. Specify one of "True" or "False" for "pairedEnd" field.' % pe
-    em = self.parse_next_name_value('errorModel')
-    if em == 'True' :
-      ngsParameters.append(True)
-    elif em == 'False' :
-      ngsParameters.append(False)
-    else :
-      raise StandardError, 'Value "%s" not supported. Specify one of "True" or "False" for "erroModel" field.' % em
-    return ngsParameters
-
-
-  def parse_seq_homol_params(self) :
-    """Parse the Sequence Homology Parameters section of the control parameters
-    file.
-
-    """
-    seqhParams = []
-    hps = self.parse_next_name_value('hmmProfileFiles')
-    hpsl = []
-    for hp in hps.split(';') :
-      hpsl.append(hp)
-    seqhParams.append(hpsl)
-    evs = self.parse_next_name_value('hmmEvalues')
-    evsl = []
-    for ev in evs.split(';') :
-      evsl.append(ev)
-    seqhParams.append(evsl)
-    blastDB = self.parse_next_name_value('BLASTdatabase')
-    if blastDB == 'None' :
-      blastDB = None
-    seqhParams.append(blastDB)
-    si = self.parse_next_name_value('seqIdentity')
-    seqhParams.append(int(si))
-    sl = self.parse_next_name_value('seqLengthAligned')
-    seqhParams.append(int(sl))
-    return seqhParams
-
-
-  def parse_assembly_params(self) :
-    """Parse the Assembly Parameters block of the control parameters file.
-
-    """
-    assParams = []
-    ass = self.parse_next_name_value('assembler')
-    assParams.append(ass)
-    kmers = self.parse_next_name_value('kmerSize')
-    kml = []
-    for km in kmers.split(';') :
-      kml.append(int(km))
-    assParams.append(kml)
-    assRef = self.parse_next_name_value('referenceAssembly')
-    assParams.append(assRef)
-    return assParams
-
-
-  def parse_next_name_value(self, name) :
-    """Check a name-colon-value pair line for the correct existence of name,
-    return a list with the name value pair.
-
-    @param name: Specify the name of the name:value pair.
-    @type name: C{'str'}
-    @rtype: C{'str'}
-    """
-    line = self.fh.readline().strip()
-    if not re.match(name, line) :
-      raise StandardError, 'Expected "%s" got "%s"' % (name, line.split[0])
-    return line.split(':')[1].strip()
-
-
-
-class Parameters(object) :
-  """Superclass of the paramters objects.
-
-  Keeps the random number generator object of the experiment.
-  Implements a str method to print out parameter name:value pairs.
-  """
-
-  def __init__(self, rndSeed, expParams, libraryParams, ngsParams, seqHomolParams, assParams) :
-    """Constructor.
-
-    The class implements a print parameters method.
-    """
-    self.rndSeed            = rndSeed
-    self.expParameters      = expParams
-    self.libraryParameters  = libraryParams
-    self.ngsParameters      = ngsParams
-    self.seqHomolParameters = seqHomolParams
-    self.assemblyParameters = assParams
-
-
-  def __str__(self) :
-    """Method to print the name:value parameter pairs.
-
-    """
-    pass
-
-
-
-class ExperimentParameters(Parameters) :
-  """Class to represent the experiment type parameters.
-
-  """
-
-  def __init__(self, expParamsList) :
-    """Constructor
-    """
-    self.experimentType = expParamsList[0]
-
-
-
-class LibraryParameters(Parameters) :
-  """Class to represent the library generation parameters.
-
-  The expected library parameters are represented by a list as a class variable.
-  The order of the list specifies the order the parameters should be found in
-  the parameters file record.
-  """
-
-  libraryParameterNames = ["libraryType", "insertSize", "standardDeviation", "coverage"]
-
-  def __init__(self, libraryParametersList) :
-    """Constructor.
-
-    @param libraryParametersList: A list of the parameter values from the
-    parameter file. The paremeter file parses shouls take care for the
-    consistency of this list.
-    @type libraryParametersList: C{list}
-    """
-    # Some sanity checks (the + 1 is required as the random seed is also passed
-    # to all the suclasses of parameters.
-    if len(self.libraryParameterNames) + 1 != len(libraryParametersList) :
-      raise StandardError, "Library parameters list not the same size to library parameters names list."
-    self.libraryType       = libraryParametersList[0]
-    self.insertSize        = libraryParametersList[1]
-    self.standardDeviation = libraryParametersList[2]
-    self.coverage          = libraryParametersList[3]
-    self.rndSeed           = libraryParametersList[4]
-
-
-
-class NGSParameters(Parameters) :
-  """Class to represent the next generation sequencing experiment parameters.
-  """
-
-  NGSParametersList = ["", "", "", ""]
-
-  def __init__(self, ngsParamsList) :
-    """Constructor.
-
-    @param ngsParamsList: A list with the NGS params files as they have been
-    parsed from the ParametersParser class.
-    @type ngsParamsList: C{'list'}
-    """
-    # A simple sanity check.
-    if len(ngsParamsList) != len(self.NGSParametersList) + 1 :
-      raise StandardError, "NGS parameters list not the same size to NGS parameters names list."
-    self.sequencingPlatform = ngsParamsList[0]
-    self.readLength         = ngsParamsList[1]
-    self.PE                 = ngsParamsList[2]
-    self.errorModel         = ngsParamsList[3]
-    self.rndSeed            = ngsParamsList[4]
-
-
-
-class SeqHomologyParameters(Parameters) :
-  """Class to contain the sequence homology parameters.
-
-  """
-
-  def __init__(self, seqHomParamList) :
-    """The constructor.
-
-    """
-    self.HMMProfiles    = seqHomParamList[0]
-    self.HMMEvalues     = seqHomParamList[1]
-    self.blastDatabase  = seqHomParamList[2]
-    self.seqIdentity    = seqHomParamList[3]
-    self.seqAlignLength = seqHomParamList[4]
-
-
-
-class AssemblyParameters(Parameters) :
-  """Container class of the assembly program and reference control parameters.
-
-  """
-
-  def __init__(self, assParamList) :
-    """The constructor...
-
-    """
-    self.assemblyProgram       = assParamList[0]
-    self.assemblyKmerSizeList  = assParamList[1]
-    self.assemblyReferenceFile = assParamList[2]
-
-
-
-class TranscirptomeSequence(AbstactReference) :
-  """Class to represent a trnascriptome derived collection of sequences.
-  """
-
-  def __init__(self, refFasta) :
-    """Constructor takes a fatsa file with the reference Transcriptome sequence
-
-    """
-
-  def next(self) :
-    """Return the next fasta sequence
-
-    """
-
-
-
-class GenomeSequence(AbstactReference) :
-  """Class to represent a genome derived collection of sequences.
-
-  @ivar refGenerator: An iterator wich yields the next fasta record in each
-  invocation.
-  @type refGenerator: C{class 'Generator'}
-  """
-
-  def __init__(self, refFile, refFileType) :
-    """Constructor takes a fatsa file with the reference Genome sequence.
-
-    Constructs a Biopyhon file parser object.
-    @param refFile: An open ready to read Python file object or the name of the
-    file  containing the reference genomic sequences.
-    @type refFile: C{file} or C{string}
-    @param refFileType: A field to designate the type of the reference sequence
-    file. Only the "fasta"
-    file format is supported at the time.
-    @type refFileType: C{string}
-    """
-    if refFileType == "fasta":
-      self.refGenerator = SeqIO.parse(refFile, refFileType, IUPAC.unambiguous_dna)
-    else :
-      raise StandardError, 'Only fasta format is supporting by the module at the moment...'
 
 
 
