@@ -2,7 +2,7 @@
 
 
 """
-Python module to conduct sequencing simulators.
+Python module to conduct second generation sequencing simulators.
 
 @author: Costas Bouyioukos
 @organization: The Sainsbury Laboratory
@@ -21,6 +21,7 @@ import random
 import string
 import subprocess
 import shlex
+import shutil
 #import copy
 
 from Bio import SeqIO
@@ -481,8 +482,8 @@ class LibraryFactory(object) :
     self.rndSeedCorrector      = rndSeedCorrector
 
 
-  def generate_sequencing_library(self, refFastaFile) :
-    """Generate a sequencing library.
+  def __call__(self, refFastaFile) :
+    """Caller to generate a sequencing library.
 
     Factory method that generates the clones of a library.
     Returns a Bio.SeqIO.SeqRecord with all the library clones.
@@ -523,18 +524,6 @@ class LibraryFactory(object) :
     return libraryClones
 
 
-#  def print_library(self, libraryClones, fh) :
-#    """Print the sequencing library in to a file.
-#
-#    """
-#    if not isinstance(fh, file) :
-#      raise StandardError, 'Method print library requires an open ready to write filehandler to properly write all the libray clones.'
-#    for clone in libraryClones :
-#      SeqIO.write(clone, fh, 'fasta')
-#    if fh is not sys.stdout :
-#      fh.close()
-
-
 
 class NGSFactory(object) :
   """Class to represent and specify the run of a Next Generation Sequencing.
@@ -553,7 +542,7 @@ class NGSFactory(object) :
   @type rng: C{class 'random.Random'}
   """
 
-  def __init__(self, ngsParameters, libraryClones) :
+  def __init__(self, ngsParameters) :
     """Constructor.
 
     @param ngsParameters: An C{'NGSParameters'} instance specifying the
@@ -565,29 +554,29 @@ class NGSFactory(object) :
     self.pairedEnd  = ngsParameters.PE
     self.errorModel = ngsParameters.errorModel
     self.rng        = random.Random(ngsParameters.rndSeed)
-    self.cloneList  = libraryClones
+#    self.cloneList  = libraryClones
 
 
-  def generate_ngs_reads(self) :
+  def __call__(self, libraryClones) :
     """Generate next generation sequencing reads.
 
     """
     if self.platform == 'Illumina' :
-      seqReads = self.generate_illumina_reads()
+      seqReads = self.generate_illumina_reads(libraryClones)
     elif self.platform == '454' :
-      seqReads = self.generate_454_reads()
+      seqReads = self.generate_454_reads(libraryClones)
     else :
       raise StandardError, 'Sequencing platform "%s" not identified.' % self.platform
     return seqReads
 
 
-  def generate_illumina_reads(self) :
+  def generate_illumina_reads(self, cloneList) :
     """Generate simulated Illumina reads.
 
     @rtype: C{list} of C{class 'Bio.SeqRecord'}
     """
     readsList = []
-    for clone in self.cloneList :
+    for clone in cloneList :
       read1 = clone[:self.readLength]
       rn = self.rng.random()
       if rn >= 0.5 :
@@ -608,7 +597,7 @@ class NGSFactory(object) :
     return readsList
 
 
-  def generate_454_reads(self) :
+  def generate_454_reads(self, cloneList) :
     """Generate simulated Roche 454 reads.
 
     """
@@ -675,9 +664,10 @@ class NGSFactory(object) :
       # Empiricaly derived error rates.
       totalErrors     = 0
       totalErrorReads = 0
-      error1          = 0.002
       errorMin        = 0.001
       errorMax        = 0.01
+      error1          = 2.0 * errorMin # The error rate of the first nucleotide
+                                       #is double the minimum one.
       # Generate the error rate distribution.
       errorModelDist = generate_error_distribution(errorMin, errorMax, self.readLength - 1)
       # Prepend the error rate for the first position.
@@ -687,17 +677,9 @@ class NGSFactory(object) :
         readSeq = read.seq
         # Convert the sequence to mutable so that you can alter it.
         readSeq = readSeq.tomutable()
-#        print '--------'
-#        print 'original: %s' % readSeq
-#        rn = self.rng.random()
-#        # The first nucleotide of an Illumina read has always a higher
-#        # probability of error.
-#        if rn <= error1 :
-#          readSeq[0] = substitute_nucleotide(readSeq[0])
-        # The nucleotides follow a 4th order polynomial error distribution.
-        # (see implememntation of the generate_error_distribution method)
-#        rn1 = self.rng.random()
-#        if rn1 <= avgError :
+        # The nucleotide error rates follow a distribution described by a 4th
+        # order polynomial. (for details see the implememntation of the
+        # generate_error_distribution method)
         errorRead = 0
         for i in xrange(len(readSeq)) :
           rn = self.rng.random()
@@ -710,6 +692,7 @@ class NGSFactory(object) :
         # Substitute the error imposed sequence and convert it back to
         # imutable.
         read.seq = readSeq.toseq()
+        # Some sanity check prints.
 #        print 'mutated : %s' % readSeq
 #      print errorModelDist
 #      print avgError
@@ -731,18 +714,97 @@ class NGSFactory(object) :
       impose_454_errors(readsList)
     else :
       raise StandardError, 'Sequencing platform "%s" not identified.' % self.platform
+    # --- End of nested functions ---
 
 
-#  def print_ngs_sequencing(self, reads, fh) :
-#    """Print the reads that the NGS simulator hgas generated in fasta format.
-#
-#    """
-#    if not isinstance(fh, file) :
-#      raise StandardError, 'Method print library requires an open ready to write filehandler to properly write all the libray clones.'
-#    for read in reads :
-#      SeqIO.write(read, fh, 'fasta')
-#    if fh is not sys.stdout :
-#      fh.close()
+
+class SequenceHomolgyFactory(object) :
+  """Class to represent the execution of a sequence homology search procedure.
+
+  """
+
+  def __init__(self, seqHomolParams, ngsParams) :
+    """The constructor, collects the parameters.
+
+    """
+    self.hmmProfiles = seqHomolParams.HMMProfiles
+    self.hmmEvalues  = seqHomolParams.HMMEvalues
+    self.blastDb     = seqHomolParams.blastDatabase
+    self.seqIdent    = seqHomolParams.seqIdentity
+    self.alignLen    = seqHomolParams.seqAlignLength
+    self.PEflag      = ngsParams.PE
+
+
+  def __call__(self, aaFile, readsFile) :
+    """The caller actualy conducts the search and returns the results.
+
+    @param aaFile: A fasta file containing amino acid sequences.
+    @type aaFile: C{'file'}
+    """
+    hmmReadIDs = self.conduct_hmmer_search(aaFile)
+    blastReadIDs = self.conduct_BLAST_search(readsFile)
+    # Combine the hmm search and the blast search results.
+    seqHomolReadIDs = hmmReadIDs + blastReadIDs
+    # Filter for uniq FastaIDs.
+    uniqFastaIDs = list(set(seqHomolReadIDs))
+    # Retrive the reads that passed the seq homology step before.
+    seqHomolRecs = get_fasta_seqIDs(readsFile, uniqFastaIDs)
+    return seqHomolRecs
+
+
+  def conduct_hmmer_search(self, aaFile) :
+    """Conduct the Hmmersearch.
+
+    """
+    fastaIDs = []
+    for j in xrange(len(self.hmmProfiles)) :
+      # Compile the command line call.
+      hmmcmdLine = 'hmmsearch --domE ' + self.hmmEvalues[j] + ' ' + self.hmmProfiles[j] + ' ' + aaFile
+      # Run the HMM and collect the read names.
+      hmmSearch = subprocess.Popen(shlex.split(hmmcmdLine), bufsize = -1, stdout=subprocess.PIPE).communicate()[0]
+      fastaIDs = fastaIDs + self.parse_hmmsearch_output(hmmSearch, self.PEflag)
+    # Keep only the unique IDs
+    uniqFastaIDs = list(set(fastaIDs))
+    return uniqFastaIDs
+
+
+  def conduct_BLAST_search(self, readsFile) :
+    """Comnduct the BLAST search
+
+    """
+    return []
+
+
+  def parse_hmmsearch_output(self, hmmSearch, paired) :
+    """Extremly basic parser of the output of the hmmsearch program.
+
+    Return only a list with the unique fasta IDs of the hits, as well as their
+    pair end read incase the paired flag is true (by default).
+    @param hmmSearch: The output of the hmmsearch program.
+    @type hmmSearch: C{'str'}
+    @param paired: Flag to specify if we want to return the pair of the read.
+    @type paired: C{'bool'}
+    @rtype : C{'set'}
+    """
+    readIDs = []
+    # Get the lines that start with >> (hmmsearch output)
+    for line in hmmSearch.split("\n") :
+      if re.match('>>', line) :
+        # Keep the ID except the last two characters (the frame name)
+        readID = str(line.split()[1])[:-2]
+        readIDs.append(readID)
+    # Return two different list depending on paired ends.
+    if paired :
+      # Remove the paired end ID
+      pReadIDs = [read[:-2] for read in readIDs]
+      pReadIDs = list(set(pReadIDs))
+      readIDs = []
+      for readID in pReadIDs :
+        readIDs.append(readID + '_1')
+        readIDs.append(readID + '_2')
+      return readIDs
+    else :
+      return list(set(readIDs))
 
 
 
@@ -770,28 +832,38 @@ class AssemblyFactory(object) :
     """
     N50 = 0
     returnFile = ''
+    bestDir    = ''
     if not self.assembler == 'velvet' :
       raise StandardError, 'Only the velvet assembler is supported at the moment.'
     else :
       for kmer in self.kmers :
         velvethCmd = 'velveth velvetAssembly_k' + str(kmer) + ' ' + str(kmer) + '-shortPaired -fasta ' + str(readsFastaFile)
         velvetgCmd = 'velvetg velvetAssembly_k' + str(kmer) + ' -ins_length_sd ' + str(self.libSD) +  ' -ins_length ' + str(self.insSize)
-        print velvetgCmd
-        # Execute the translation.
+        # Execute the assemblies.
         subprocess.call(shlex.split(velvethCmd), bufsize = -1)
         subprocess.call(shlex.split(velvetgCmd), bufsize = -1)
         # Evaluate the assembly quality.
-        contigsFile = 'velvetAssembly_k' + str(kmer) + '/contigs.fa'
+        assDir = 'velvetAssembly_k' + str(kmer)
+        contigsFile = assDir + '/contigs.fa'
         contigN50 = FastxMetrics.calculate_N50(contigsFile)
         if contigN50 > N50 :
           returnFile = contigsFile
+          bestDir = assDir
           N50 = contigN50
+          print N50
+          print assDir
+    # Remove the extraenous assembly direcotries.
+    assDirs = ['velvetAssembly_k' + str(k) for k in self.kmers]
+    assDirs.remove(bestDir)
+    for dr in assDirs :
+      shutil.rmtree(dr)
     return returnFile
 
 
   def assembly_quality(self, contigsFile) :
     """Method to perform quality control of the assembly.
 
+    At the moment only the N50 of the assembly is taking into account.
     """
     pass
 
@@ -801,6 +873,7 @@ class AssemblyFactory(object) :
     one.
 
     """
+    pass
 
 
 
@@ -863,37 +936,6 @@ def print_SeqRecord_list(seqRecList, fh) :
   for seqRec in seqRecList :
     SeqIO.write(seqRec, fh, 'fasta')
 
-
-def parse_hmmsearch_output(hmmSearch, paired) :
-  """Extremly basic parser of the output of the hmmsearch program.
-
-  Return only a list with the unique fasta IDs of the hits, as well as their pair
-  end read incase the paired flag is true (by default).
-  @param hmmSearch: The output of the hmmsearch program.
-  @type hmmSearch: C{'str'}
-  @param paired: Flag to specify if we want to return the pair of the read.
-  @type paired: C{'bool'}
-  @rtype : C{'set'}
-  """
-  readIDs = []
-  # Get the lines that start with >> (hmmsearch output)
-  for line in hmmSearch.split("\n") :
-    if re.match('>>', line) :
-      # Keep the ID except the last two characters (the frame name)
-      readID = str(line.split()[1])[:-2]
-      readIDs.append(readID)
-  # Return two different list depending on paired ends.
-  if paired :
-    # Remove the paired end ID
-    pReadIDs = [read[:-2] for read in readIDs]
-    pReadIDs = list(set(pReadIDs))
-    readIDs = []
-    for readID in pReadIDs :
-      readIDs.append(readID + '_1')
-      readIDs.append(readID + '_2')
-    return readIDs
-  else :
-    return list(set(readIDs))
 
 
 def get_fasta_seqIDs(fastaFile, seqIDList) :

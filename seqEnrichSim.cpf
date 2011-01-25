@@ -6,7 +6,7 @@ test
 libraryType        : genomicDNA
 insertSize         : 300
 standardDeviation  : 50
-coverage           : 5
+coverage           : 10
 #NGSparameters
 sequencingPlatform : Illumina
 readLength         : 100
@@ -20,7 +20,7 @@ seqIdentity      : 85
 seqLengthAligned : 85
 #AssemblyParameters
 assembler         : velvet
-kmerSizes         : 49;53;57;61
+kmerSizes         : 47;51;55;59
 referenceAssembly : filename
 #SequenceEnrichmentParameters
 -

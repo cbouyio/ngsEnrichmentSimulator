@@ -9,6 +9,8 @@ import argparse
 import subprocess
 import shlex
 import re
+import shutil
+
 
 import seqEnrichSim
 
@@ -24,7 +26,7 @@ parser.add_argument('-r', '--seedCorrector', metavar = '<rndSeed_Corrector>', ty
 ns = parser.parse_args()
 
 # Get a list of the basenames of the arguments of the input file list.
-basenamesList = [os.path.splitext(os.path.split(name)[1])[0] for name in ns.infileList]
+basenamesList = [ os.path.splitext(os.path.split(name)[1])[0] for name in ns.infileList ]
 
 
 ################
@@ -36,36 +38,38 @@ cpParser = seqEnrichSim.ParametersParser(ns.paramFile)
 # Parse the control parameters.
 cParams = cpParser.parse()
 
-## The various components of the simulator will be checked and executed here.
+## All the components of the simulator will be checked and executed here.
+
 
 # Generate the NGS filenames.
 ngsType = cParams.ngsParameters.sequencingPlatform
 ngsFilesList = [name + '_' + ngsType + 'Reads.fasta' for name in basenamesList]
 
-# Run the NGS simulation for the files that is needed.
+
+# Run the NGS simulation only for the files that is needed.
 rndSeedCorr = 0
 for i in xrange(len(ngsFilesList)) :
   if not os.path.exists(ngsFilesList[i]) :
     # Instantiate the library factory.
-    libFact = seqEnrichSim.LibraryFactory(cParams.libraryParameters, rndSeedCorr)
+    libraryFact = seqEnrichSim.LibraryFactory(cParams.libraryParameters, rndSeedCorr)
     # Generate the sequencing library.
-    libFragments = libFact.generate_sequencing_library(ns.infileList[i])
+    libFragments = libraryFact(ns.infileList[i])
     # Instantiate the NGS factory.
-    ngsFact = seqEnrichSim.NGSFactory(cParams.ngsParameters, libFragments)
+    ngsFact = seqEnrichSim.NGSFactory(cParams.ngsParameters)
     # Generate NGS reads.
-    ngsReads = ngsFact.generate_ngs_reads()
+    ngsReads = ngsFact(libFragments)
     # Write them on the file.
     ngsFH = open(ngsFilesList[i], 'w')
     seqEnrichSim.print_SeqRecord_list(ngsReads, ngsFH)
   rndSeedCorr = rndSeedCorr + 1
 
+
 # Generate the sequence homology filenames.
 seqHomolOufiles = [name + '_SeqHomol.fasta' for name in basenamesList]
 
-# Get the sequence homology parameters object.
-seqHomParams = cParams.seqHomolParameters
 
-# Check the existence of the selected reads FASTA file.
+# Check the existence of the selected reads FASTA files and conduct the
+# sequence homology experiments..
 for i in xrange(len(seqHomolOufiles)) :
   if not os.path.exists(seqHomolOufiles[i]) :
     # Generate a temporary file to hold the 6 open reading frames for each
@@ -74,35 +78,32 @@ for i in xrange(len(seqHomolOufiles)) :
     translCmd = 'transeq -frame 6 ' + ngsFilesList[i] + ' ' + translTMPfile
     # Execute the translation.
     subprocess.call(shlex.split(translCmd), bufsize = -1)
-    # Run the HMM profiles
-    fastaIDs = []
-    for j in xrange(len(seqHomParams.HMMProfiles)) :
-      # Compile the command line call.
-      hmmcmdLine = 'hmmsearch --domE ' + seqHomParams.HMMEvalues[j] + ' ' + seqHomParams.HMMProfiles[j] + ' ' + translTMPfile
-      # Run the HMM and collect the read names.
-      hmmSearch = subprocess.Popen(shlex.split(hmmcmdLine), bufsize = -1, stdout=subprocess.PIPE).communicate()[0]
-      fastaIDs = fastaIDs + seqEnrichSim.parse_hmmsearch_output(hmmSearch, cParams.ngsParameters.PE)
-#TODO  Put the BLAST search somewhere here
-    # Keep only the unique IDs
-    uniqFastaIDs = list(set(fastaIDs))
-    # Delete the TMP file.
-    os.remove(translTMPfile)
-    # Retrive the reads that passed the seq homology step before.
-    seqHomolRecs = seqEnrichSim.get_fasta_seqIDs(ngsFilesList[i], uniqFastaIDs)
+    # Instantiate the Sequence Homology class.
+    seqHomol = seqEnrichSim.SequenceHomolgyFactory(cParams.seqHomolParameters, cParams.ngsParameters)
+    # Execute the procedure.
+    seqHomolRecs = seqHomol(translTMPfile, ngsFilesList[i])
     # Print the sequences ot the relative file.
     seqHomolFH = open(seqHomolOufiles[i], 'w')
     seqEnrichSim.print_SeqRecord_list(seqHomolRecs, seqHomolFH)
+    # Delete the TMP file.
+    os.remove(translTMPfile)
+
+
+# Concatenate all the sequence homology files to one.
+allSeqFile = 'all_SeqHomol.fasta'
+dest = open('all_SeqHomol.fasta', 'wb')
+for fl in seqHomolOufiles :
+  shutil.copyfileobj(open(fl, 'rb'), dest)
+
 
 # Generate the sequence assembly filenames.
-assemblyOutfiles = [name + '_Assemblies.fasta' for name in basenamesList]
+assemblyOutfile = 'seqHomol_Assembly.fasta'
 
-# Getthe assembly parameters.
-assParams = cParams.assemblyParameters
 
-# Check the existence of assembly files.
-for j in xrange(len(assemblyOutfiles)) :
-  if not os.path.exists(assemblyOutfiles[j]) :
-    # Conduct the assembly.
-    assFact = seqEnrichSim.AssemblyFactory(assParams, cParams.libraryParameters)
-    contigsFile = assFact(seqHomolOufiles[j])
-    print contigsFile
+# Check the existence of the assembly file and conduct the assemblies.
+if not os.path.exists(assemblyOutfile) :
+  # Conduct the assembly.
+  assemblyFact = seqEnrichSim.AssemblyFactory(cParams.assemblyParameters, cParams.libraryParameters)
+  contigsFile = assemblyFact(allSeqFile)
+  print contigsFile
+
