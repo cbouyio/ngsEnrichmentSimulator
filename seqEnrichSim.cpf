@@ -6,21 +6,21 @@ test
 libraryType        : genomicDNA
 insertSize         : 300
 standardDeviation  : 50
-coverage           : 10
+coverage           : 15
 #NGSparameters
 sequencingPlatform : Illumina
-readLength         : 100
+readLength         : 120
 pairedEnd          : True
 errorModel         : True
 #SequenceHomologyParameters
-hmmProfileFiles  : NB-ARC.hmm;LRR_1.hmm
-hmmEvalues       : 1;1
+hmmProfileFiles  : /home/bouyiouc/data/NB-ARC.hmm;/home/bouyiouc/data/LRR_1.hmm
+hmmEvalues       : 10;10
 BLASTdatabase    : None
 seqIdentity      : 85
 seqLengthAligned : 85
 #AssemblyParameters
 assembler         : velvet
-kmerSizes         : 47;51;55;59
-referenceAssembly : filename
+kmerSizes         : 41;43;45;47;49;51
+referenceAssembly : referenceAssmbly.fasta
 #SequenceEnrichmentParameters
 -

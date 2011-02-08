@@ -22,14 +22,20 @@ import string
 import subprocess
 import shlex
 import shutil
-#import copy
+import os.path
+#import tempfile
+import math
+
+import FastxMetrics
 
 from Bio import SeqIO
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
 from Bio.Alphabet import IUPAC
+from Bio.Blast.Applications import NcbiblastnCommandline
+from Bio.Blast.Applications import NcbitblastnCommandline
+from Bio.Blast import NCBIXML
 
-import FastxMetrics
 
 
 class AbstactReference(object) :
@@ -56,18 +62,17 @@ class GenomeSequence(AbstactReference) :
   """
 
   def __init__(self, refFile, refFileType) :
-    """Constructor takes a fatsa file with the reference Genome sequence.
+    """Constructor takes a fasta file with the reference genome sequence.
 
     Constructs a Biopyhon file parser object.
-    @param refFile: An open ready to read Python file object or the name of the
-    file  containing the reference genomic sequences.
+    @param refFile: An open ready to read Python file object or the name of
+    the file  containing the reference genomic sequences.
     @type refFile: C{file} or C{string}
-    @param refFileType: A field to designate the type of the reference sequence
-    file. Only the "fasta"
-    file format is supported at the time.
+    @param refFileType: A field to designate the type of the reference
+    sequence file. Only the "fasta" file format is supported at the time.
     @type refFileType: C{string}
     """
-    if refFileType == "fasta":
+    if refFileType == "fasta" :
       self.refGenerator = SeqIO.parse(refFile, refFileType, IUPAC.unambiguous_dna)
     else :
       raise StandardError, 'Only fasta format is supporting by the module at the moment...'
@@ -79,14 +84,11 @@ class TranscirptomeSequence(AbstactReference) :
   """
 
   def __init__(self, refFasta) :
-    """Constructor takes a fatsa file with the reference Transcriptome sequence
+    """Constructor takes a fasta file with the reference Transcriptome
+    sequence
 
     """
-
-  def next(self) :
-    """Return the next fasta sequence
-
-    """
+    pass
 
 
 
@@ -850,8 +852,6 @@ class AssemblyFactory(object) :
           returnFile = contigsFile
           bestDir = assDir
           N50 = contigN50
-          print N50
-          print assDir
     # Remove the extraenous assembly direcotries.
     assDirs = ['velvetAssembly_k' + str(k) for k in self.kmers]
     assDirs.remove(bestDir)
@@ -860,18 +860,80 @@ class AssemblyFactory(object) :
     return returnFile
 
 
+  def assess_assembly(self, contigsFile, dbType = 'nucl') :
+    """Method to perform a comparison of a given assembly with a refference
+    one.
+
+    Returns measures of similaties between two assemblies.
+    @param dbType: Specify the type of the refernce BLAST database.
+    @type dbType: C{'str'}
+    """
+    # Check for the existance of the blast database.
+    if dbType == 'prot' :
+      if not os.path.exists(self.referenceFile + '.psq') :
+        dbCmd = 'makeblastdb -in ' + self.referenceFile + ' -dbtype ' + dbType
+        subprocess.call(shlex.split(dbCmd))
+    elif dbType == 'nucl' :
+      if not os.path.exists(self.referenceFile + '.nsq') :
+        dbCmd = 'makeblastdb -in ' + self.referenceFile + ' -dbtype ' + dbType
+        subprocess.call(shlex.split(dbCmd))
+    else :
+      raise StandardError, 'BLAST database type wrong. Only "nucl" and "prot" are supported.'
+    # Collect some measures of the files.
+    refNoSeqs     = FastxMetrics.count_fasta(self.referenceFile)
+    contigsNo     = FastxMetrics.count_fasta(contigsFile)
+    refNoNucl     = FastxMetrics.count_nucleotides(self.referenceFile)
+    contigsNoNucl = FastxMetrics.count_nucleotides(contigsFile)
+    # Then perform a BLAST search between the current and the reference
+    # assembly.
+    if dbType == 'nucl' :
+      cmdBLASTLine = NcbiblastnCommandline(query = contigsFile, db = self.referenceFile, evalue = 0.001, outfmt = 5, max_target_seqs = 1, culling_limit = 1)
+    elif dbType == 'prot' :
+      cmdBLASTLine = NcbitblastnCommandline(query = contigsFile, db = self.referenceFile, evalue = 0.001, outfmt = 5, max_target_seqs = 1, culling_limit = 1)
+    xmlOut, stdErr = cmdBLASTLine()
+    #TODO Generate a safe tmp file using the tempfile Python module.
+    blastOutfile = open('simulatorBLASTOut.xml', 'w')
+    blastOutfile.write(xmlOut)
+    blastOutfile.close()
+    blastOutfile = open('simulatorBLASTOut.xml', 'r')
+    blastRecords = NCBIXML.parse(blastOutfile)
+    totalMatches = 0
+    totalMissmatches = 0
+    totalGaps = 0
+    blastHits = 0
+    for rec in blastRecords :
+      # According to the BLAST options only one HSP is returned from each
+      # alignment.
+      if rec.alignments[0].hsps[0] :
+        hsp = rec.alignments[0].hsps[0]
+        sbjctGaps = hsp.sbjct.count('-')
+        queryGaps = hsp.query.count('-')
+        missmatches = hsp.match.count(' ') - queryGaps - sbjctGaps
+        matches = hsp.identities
+        totalMatches = totalMatches + matches
+        totalMissmatches = totalMissmatches + missmatches
+        totalGaps = totalGaps + sbjctGaps + queryGaps
+        blastHits = blastHits + 1
+    # Calculate a distance measure form the "ideal" assembly!
+    distance = math.sqrt(math.fabs(refNoNucl - totalMatches) + math.fabs(refNoSeqs - blastHits) + math.fabs(0 - totalMissmatches) + math.fabs(0 - totalGaps) + math.fabs(refNoSeqs - contigsNo) + math.fabs(refNoNucl - contigsNoNucl))
+    assemblyAssessFile = open('assemblyAssessment.txt', 'w')
+    assemblyAssessFile.write('Reference Sequences       : %i\n' % refNoSeqs)
+    assemblyAssessFile.write('Assembled Sequences       : %i\n' % contigsNo)
+    assemblyAssessFile.write('Reference Nucleotides     : %i\n' % refNoNucl)
+    assemblyAssessFile.write('Assembled Nucleotides     : %i\n' % contigsNoNucl)
+    assemblyAssessFile.write('Reference/Assembled Hits  : %i\n' % blastHits)
+    assemblyAssessFile.write('Total Nucl Matches        : %i\n' % totalMatches)
+    assemblyAssessFile.write('Total Nucl Missatches     : %i\n' % totalMissmatches)
+    assemblyAssessFile.write('Total Alignment Gaps      : %i\n' % totalGaps)
+    assemblyAssessFile.write('Perfect Assembly Distance : %f\n' % distance)
+    assemblyAssessFile.close()
+    return distance
+
+
   def assembly_quality(self, contigsFile) :
     """Method to perform quality control of the assembly.
 
     At the moment only the N50 of the assembly is taking into account.
-    """
-    pass
-
-
-  def assembly_comparison(self, contigsFile, referenceFile) :
-    """Method to perform a comparison of a given assembly with a refference
-    one.
-
     """
     pass
 
@@ -890,6 +952,7 @@ class TranslationFactory(object) :
     @type ngsSeqFile: C{'str'} or C{'file'}
     """
     self.ngsParser = SeqIO.parse(ngsSeqFile, "fasta")
+    raise StandardError, 'TranslationFactory implementation buggy and incomplete, use some external untility for the translation of sequences.'
 
 
   def __call__(self, frames) :

@@ -74,6 +74,8 @@ for i in xrange(len(seqHomolOufiles)) :
   if not os.path.exists(seqHomolOufiles[i]) :
     # Generate a temporary file to hold the 6 open reading frames for each
     # read.
+    #TODO generate a proper TMP file in the /tmp directory
+    #(and then accordingly delete it). MOVE the whole process in the module!!
     translTMPfile = ngsFilesList[i] + "._TMP"
     translCmd = 'transeq -frame 6 ' + ngsFilesList[i] + ' ' + translTMPfile
     # Execute the translation.
@@ -101,9 +103,13 @@ assemblyOutfile = 'seqHomol_Assembly.fasta'
 
 
 # Check the existence of the assembly file and conduct the assemblies.
+assemblyFilename = 'selectedAssembledContigs.fasta'
+assemblyStatsFile = 'assemblyStats.fasta'
 if not os.path.exists(assemblyOutfile) :
   # Conduct the assembly.
   assemblyFact = seqEnrichSim.AssemblyFactory(cParams.assemblyParameters, cParams.libraryParameters)
-  contigsFile = assemblyFact(allSeqFile)
-  print contigsFile
+  selectedAssmblyFile = assemblyFact(allSeqFile)
+  distance = assemblyFact.assess_assembly(selectedAssmblyFile)
+print 'Best assembly : %s' % selectedAssmblyFile
+print 'Distance form perfect assembly: %f' % distance
 

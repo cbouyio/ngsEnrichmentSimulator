@@ -5,9 +5,9 @@ homology / phylogenetics information.
 
 Various pure python modules represent different procedures of the approaches.
 
-A run python script conducts the experiments.
+A drive python script conducts the various types of experiments.
 
-A control parameters file holds the neccessary parameters to perform the
-various experiments.
+A control parameters file holds the neccessary parameters to perform each
+differrent part of the experiments.
 
 Developed by cbouyio @ TSL since Nov 2010
