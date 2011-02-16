@@ -49,7 +49,7 @@ ngsFilesList = [name + '_' + ngsType + 'Reads.fasta' for name in basenamesList]
 # Run the NGS simulation only for the files that is needed.
 rndSeedCorr = 0
 for i in xrange(len(ngsFilesList)) :
-  if not os.path.exists(ngsFilesList[i]) :
+  if not (os.path.exists(ngsFilesList[i]) or os.path.exists(ngsFilesList[i] + '.gz'))  :
     # Instantiate the library factory.
     libraryFact = seqEnrichSim.LibraryFactory(cParams.libraryParameters, rndSeedCorr)
     # Generate the sequencing library.
@@ -76,10 +76,11 @@ for i in xrange(len(seqHomolOufiles)) :
     # read.
     #TODO generate a proper TMP file in the /tmp directory
     #(and then accordingly delete it). MOVE the whole process in the module!!
-    translTMPfile = ngsFilesList[i] + "._TMP"
-    translCmd = 'transeq -frame 6 ' + ngsFilesList[i] + ' ' + translTMPfile
-    # Execute the translation.
-    subprocess.call(shlex.split(translCmd), bufsize = -1)
+    translTMPfile = ngsFilesList[i] + '._TMP'
+    if not os.path.exists(translTMPfile) :
+      translCmd = 'transeq -frame 6 ' + ngsFilesList[i] + ' ' + translTMPfile
+      # Execute the translation.
+      subprocess.call(shlex.split(translCmd), bufsize = -1)
     # Instantiate the Sequence Homology class.
     seqHomol = seqEnrichSim.SequenceHomolgyFactory(cParams.seqHomolParameters, cParams.ngsParameters)
     # Execute the procedure.
@@ -92,24 +93,24 @@ for i in xrange(len(seqHomolOufiles)) :
 
 
 # Concatenate all the sequence homology files to one.
-allSeqFile = 'all_SeqHomol.fasta'
-dest = open('all_SeqHomol.fasta', 'wb')
-for fl in seqHomolOufiles :
-  shutil.copyfileobj(open(fl, 'rb'), dest)
-
-
-# Generate the sequence assembly filenames.
-assemblyOutfile = 'seqHomol_Assembly.fasta'
+allSeqFile = 'allSeqHomol.fasta'
+if not os.path.exists(allSeqFile) :
+  dest = open(allSeqFile, 'wb')
+  for fl in seqHomolOufiles :
+    shutil.copyfileobj(open(fl, 'rb'), dest)
 
 
 # Check the existence of the assembly file and conduct the assemblies.
-assemblyFilename = 'selectedAssembledContigs.fasta'
-assemblyStatsFile = 'assemblyStats.fasta'
-if not os.path.exists(assemblyOutfile) :
+assemblyFilename  = 'bestAssemblyContigs.fasta'
+assemblyStatsFile = 'assemblyStats.txt'
+# Instantiate the assembly factory.
+assemblyFact = seqEnrichSim.AssemblyFactory(cParams.assemblyParameters, cParams.libraryParameters)
+if not os.path.exists(assemblyFilename) :
   # Conduct the assembly.
-  assemblyFact = seqEnrichSim.AssemblyFactory(cParams.assemblyParameters, cParams.libraryParameters)
-  selectedAssmblyFile = assemblyFact(allSeqFile)
-  distance = assemblyFact.assess_assembly(selectedAssmblyFile)
-print 'Best assembly : %s' % selectedAssmblyFile
-print 'Distance form perfect assembly: %f' % distance
+  selectedAssemblyFile = assemblyFact(allSeqFile)
+  shutil.copyfile(selectedAssemblyFile, assemblyFilename)
+# Assess the assembly.
+distance = assemblyFact.assess_assembly(assemblyFilename, assemblyStatsFile, 'nucl')
+
+print 'Distance from reference assembly: %.3f' % distance
 

@@ -46,8 +46,8 @@ class AbstactReference(object) :
   """
 
   def __init__(self) :
-    """Empty constructor, raise an exception, each subclass should be contructed
-    individualy.
+    """Empty constructor, raise an exception, each subclass should be
+    contructed individualy.
     """
     raise StandardError, 'cannot instantiate AbstactReference class'
 
@@ -102,6 +102,7 @@ class Predator(object) :
 
   def __init__(self, targetFastaFile) :
     """Constructor.
+
     """
 
 
@@ -743,10 +744,12 @@ class SequenceHomolgyFactory(object) :
     @param aaFile: A fasta file containing amino acid sequences.
     @type aaFile: C{'file'}
     """
+    seqHomolReadIDs = []
     hmmReadIDs = self.conduct_hmmer_search(aaFile)
     blastReadIDs = self.conduct_BLAST_search(readsFile)
     # Combine the hmm search and the blast search results.
-    seqHomolReadIDs = hmmReadIDs + blastReadIDs
+    seqHomolReadIDs.extend(hmmReadIDs)
+    seqHomolReadIDs.extend(blastReadIDs)
     # Filter for uniq FastaIDs.
     uniqFastaIDs = list(set(seqHomolReadIDs))
     # Retrive the reads that passed the seq homology step before.
@@ -761,10 +764,10 @@ class SequenceHomolgyFactory(object) :
     fastaIDs = []
     for j in xrange(len(self.hmmProfiles)) :
       # Compile the command line call.
-      hmmcmdLine = 'hmmsearch --domE ' + self.hmmEvalues[j] + ' ' + self.hmmProfiles[j] + ' ' + aaFile
+      hmmcmdLine = 'hmmsearch --noali --domE ' + self.hmmEvalues[j] + ' ' + self.hmmProfiles[j] + ' ' + aaFile
       # Run the HMM and collect the read names.
       hmmSearch = subprocess.Popen(shlex.split(hmmcmdLine), bufsize = -1, stdout=subprocess.PIPE).communicate()[0]
-      fastaIDs = fastaIDs + self.parse_hmmsearch_output(hmmSearch, self.PEflag)
+      fastaIDs.extend(self.parse_hmmsearch_output(hmmSearch, self.PEflag))
     # Keep only the unique IDs
     uniqFastaIDs = list(set(fastaIDs))
     return uniqFastaIDs
@@ -860,36 +863,33 @@ class AssemblyFactory(object) :
     return returnFile
 
 
-  def assess_assembly(self, contigsFile, dbType = 'nucl') :
+  def assess_assembly(self, contigsFile, assemblyStatsFile, refType) :
     """Method to perform a comparison of a given assembly with a refference
     one.
 
     Returns measures of similaties between two assemblies.
-    @param dbType: Specify the type of the refernce BLAST database.
-    @type dbType: C{'str'}
+    @param refType: Specify the type of the refernce sequences.
+    @type refType: C{'str'}
     """
-    # Check for the existance of the blast database.
-    if dbType == 'prot' :
-      if not os.path.exists(self.referenceFile + '.psq') :
-        dbCmd = 'makeblastdb -in ' + self.referenceFile + ' -dbtype ' + dbType
-        subprocess.call(shlex.split(dbCmd))
-    elif dbType == 'nucl' :
-      if not os.path.exists(self.referenceFile + '.nsq') :
-        dbCmd = 'makeblastdb -in ' + self.referenceFile + ' -dbtype ' + dbType
-        subprocess.call(shlex.split(dbCmd))
-    else :
-      raise StandardError, 'BLAST database type wrong. Only "nucl" and "prot" are supported.'
+    # Check for the existance and set the BLAST database.
+    if not os.path.exists(contigsFile + '.nsq') :
+      dbCmd = 'makeblastdb -in ' + contigsFile + ' -dbtype nucl'
+      subprocess.call(shlex.split(dbCmd))
     # Collect some measures of the files.
     refNoSeqs     = FastxMetrics.count_fasta(self.referenceFile)
     contigsNo     = FastxMetrics.count_fasta(contigsFile)
     refNoNucl     = FastxMetrics.count_nucleotides(self.referenceFile)
     contigsNoNucl = FastxMetrics.count_nucleotides(contigsFile)
+    meanRefLength = refNoNucl / float(refNoSeqs)
     # Then perform a BLAST search between the current and the reference
     # assembly.
-    if dbType == 'nucl' :
-      cmdBLASTLine = NcbiblastnCommandline(query = contigsFile, db = self.referenceFile, evalue = 0.001, outfmt = 5, max_target_seqs = 1, culling_limit = 1)
-    elif dbType == 'prot' :
-      cmdBLASTLine = NcbitblastnCommandline(query = contigsFile, db = self.referenceFile, evalue = 0.001, outfmt = 5, max_target_seqs = 1, culling_limit = 1)
+    if refType == 'nucl' :
+      cmdBLASTLine = NcbiblastnCommandline(query = self.referenceFile, db = contigsFile, evalue = 1e-10, outfmt = 5, culling_limit = 1)
+    elif refType == 'prot' :
+      cmdBLASTLine = NcbitblastnCommandline(query = self.referenceFile, db = contigsFile, evalue = 1e-10, outfmt = 5, culling_limit = 1)
+    else :
+      raise StandardError, 'BLAST database type wrong. Only "nucl" and "prot" are supported.'
+    print cmdBLASTLine
     xmlOut, stdErr = cmdBLASTLine()
     #TODO Generate a safe tmp file using the tempfile Python module.
     blastOutfile = open('simulatorBLASTOut.xml', 'w')
@@ -902,21 +902,20 @@ class AssemblyFactory(object) :
     totalGaps = 0
     blastHits = 0
     for rec in blastRecords :
-      # According to the BLAST options only one HSP is returned from each
-      # alignment.
-      if rec.alignments[0].hsps[0] :
-        hsp = rec.alignments[0].hsps[0]
-        sbjctGaps = hsp.sbjct.count('-')
-        queryGaps = hsp.query.count('-')
-        missmatches = hsp.match.count(' ') - queryGaps - sbjctGaps
-        matches = hsp.identities
-        totalMatches = totalMatches + matches
-        totalMissmatches = totalMissmatches + missmatches
-        totalGaps = totalGaps + sbjctGaps + queryGaps
-        blastHits = blastHits + 1
-    # Calculate a distance measure form the "ideal" assembly!
-    distance = math.sqrt(math.fabs(refNoNucl - totalMatches) + math.fabs(refNoSeqs - blastHits) + math.fabs(0 - totalMissmatches) + math.fabs(0 - totalGaps) + math.fabs(refNoSeqs - contigsNo) + math.fabs(refNoNucl - contigsNoNucl))
-    assemblyAssessFile = open('assemblyAssessment.txt', 'w')
+      if rec.alignments :
+        for align in rec.alignments :
+          for hsp in align.hsps :
+            #TODO: Assemble the "coverage" of the reference sequence and count the matches etc there as well!!!!
+            gaps = hsp.sbjct.count('-') + hsp.query.count('-')
+            missmatches = hsp.match.count(' ') - gaps
+            matches = hsp.identities
+            totalMatches = totalMatches + matches
+            totalMissmatches = totalMissmatches + missmatches
+            totalGaps = totalGaps + gaps
+          blastHits = blastHits + 1
+    # Calculate a distance measure form the reference assembly.
+    distance = math.sqrt((((refNoNucl + contigsNoNucl - (2 * totalMatches)) + (0.5 * totalMissmatches) + totalGaps) / float(meanRefLength)) + ((contigsNo - blastHits) / float(contigsNo)))
+    assemblyAssessFile = open(assemblyStatsFile, 'w')
     assemblyAssessFile.write('Reference Sequences       : %i\n' % refNoSeqs)
     assemblyAssessFile.write('Assembled Sequences       : %i\n' % contigsNo)
     assemblyAssessFile.write('Reference Nucleotides     : %i\n' % refNoNucl)
@@ -927,6 +926,8 @@ class AssemblyFactory(object) :
     assemblyAssessFile.write('Total Alignment Gaps      : %i\n' % totalGaps)
     assemblyAssessFile.write('Perfect Assembly Distance : %f\n' % distance)
     assemblyAssessFile.close()
+    blastOutfile.close()
+    os.remove('simulatorBLASTOut.xml')
     return distance
 
 
