@@ -10,6 +10,6 @@ install : ${PYTHONMODULES}
 	python setup.py install --home=${HOME}
 
 clean :
-	rm -rf velvetAssembly_* html build *.pyc *_SeqHomol.fasta *_IlluminaReads.fasta
+	rm -rf velvetAssembly* html build *.pyc *SeqHomol.fasta *IlluminaReads.fasta* assemblyStats.txt bestAssemblyContigs.fasta* *.nsq *.nhr *.nin
 
 .PHONY : install clean

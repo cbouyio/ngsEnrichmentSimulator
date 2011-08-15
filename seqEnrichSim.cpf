@@ -5,22 +5,23 @@ test
 #LibraryParamaters
 libraryType        : genomicDNA
 insertSize         : 300
-standardDeviation  : 50
-coverage           : 15
+standardDeviation  : 30
+coverage           : 40
 #NGSparameters
 sequencingPlatform : Illumina
-readLength         : 120
+readLength         : 100
 pairedEnd          : True
 errorModel         : True
+errorRates         : 0.02;0.15
 #SequenceHomologyParameters
-hmmProfileFiles  : /home/bouyiouc/data/NB-ARC.hmm;/home/bouyiouc/data/LRR_1.hmm
-hmmEvalues       : 10;10
-BLASTdatabase    : None
-seqIdentity      : 85
-seqLengthAligned : 85
+hmmProfileFiles  : /home/bouyiouc/data/NBSLRR.hmm
+hmmEvalues       : 10
+BLASTdatabase    : Oryza_indica.Jan_2005.cdna.all_NBSLRRhits_58Random.fasta
+seqIdentity      : 75
+seqLengthAligned : 75
 #AssemblyParameters
 assembler         : velvet
-kmerSizes         : 41;43;45;47;49;51
-referenceAssembly : referenceAssmbly.fasta
+kmerSizes         : 41;43;45;47;49;51;53;55;57;59;61
+referenceAssembly : rice_NBS_CDS_494.fasta
 #SequenceEnrichmentParameters
 -
