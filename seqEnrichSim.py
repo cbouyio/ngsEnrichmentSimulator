@@ -32,7 +32,7 @@ from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
 from Bio.Alphabet import IUPAC
 from Bio.Blast.Applications import NcbiblastnCommandline
-from Bio.Blast.Applications import NcbitblastnCommandline
+from Bio.Blast.Applications import NcbiblastxCommandline
 from Bio.Blast import NCBIXML
 
 
@@ -525,12 +525,13 @@ class LibraryFactory(object) :
       seqClones = []
       refLength = len(sequence)
       if seqParams.PE :
-        noClones = int((self.libraryCoverage * refLength) / float(2 * seqParams.readLength))
+        noClones = int(math.ceil((self.libraryCoverage * refLength) / float(2 * seqParams.readLength)))
       else :
-        noClones = int((self.libraryCoverage * refLength) / float(seqParams.readLength))
+        noClones = int(math.ceil((self.libraryCoverage * refLength) / float(seqParams.readLength)))
+      # Iterate over the number of clones.
       for i in xrange(noClones) :
-        # While loop to make sure we generate only positive length of fragment
-        # sizes.
+        # While loop just to make sure we generate only positive lengths of fragment
+        # sizes. (a small insert size with a high SD might occur in to several repetiions of this loop)
         while True :
           fragmentSize = int(round(rng.gauss(self.libraryInsertSize, self.libraryInsertSD)))
           if fragmentSize > 0 :
@@ -542,6 +543,7 @@ class LibraryFactory(object) :
           seqPoint = refLength - int(fragmentSize / 2.0)
         elif seqPoint - round(fragmentSize / 2.0) < 0 :
           seqPoint = round(fragmentSize / 2.0)
+        # Set the library fragment coordinates.
         fragmentCoords = (int(seqPoint - round(fragmentSize / 2.0)), int(seqPoint + int(fragmentSize / 2.0)),)
 #        fragment = sequence[previousSlicePoint:nextSlicePoint]
 #        fragment.description = ''
@@ -835,7 +837,7 @@ class SequenceHomolgyFactory(object) :
       return []
     # Check the existence of the BLAST db
     if not os.path.exists(self.blastDB + '.nsq') :
-      dbCmd = 'makeblastdb -in ' + self.blastDB + ' -dbtype nucl'
+      dbCmd = 'makeblastdb -in %s -dbtype nucl' % self.blastDB
       subprocess.call(shlex.split(dbCmd))
     # Set up the BLASTn command line call.
     cmdBLASTLine = NcbiblastnCommandline(query = readsFile, db = self.blastDB, task = 'blastn', outfmt = '\'6 qseqid length pident\'', culling_limit = 1, evalue = 0.01, max_target_seqs = 1)
@@ -876,19 +878,19 @@ class SequenceHomolgyFactory(object) :
       return []
     # First generate the translated reads file.
     translReadsFile = tempfile.NamedTemporaryFile()
-    translCmd = 'transeq -frame 6 ' + readsFile + ' ' + translReadsFile.name
+    translCmd = 'transeq -frame 6 %s %s' % (readsFile, translReadsFile.name)
     # Execute the translation.
     subprocess.call(shlex.split(translCmd), bufsize = -1)
     fastaIDs = []
     for i in xrange(len(self.hmmProfiles)) :
       # Compile the command line call.
-      hmmcmdLine = 'hmmsearch --noali --domE ' + self.hmmEvalues[i] + ' ' + self.hmmProfiles[i] + ' ' + translReadsFile.name
+      hmmCmd = 'hmmsearch --noali --domE %f %s %s' % (self.hmmEvalues[i], self.hmmProfiles[i], translReadsFile.name)
       # Run the HMM and collect the read names.
-      hmmSearch = subprocess.Popen(shlex.split(hmmcmdLine), bufsize = -1, stdout=subprocess.PIPE).communicate()[0]
+      hmmSearch = subprocess.Popen(shlex.split(hmmCmd), bufsize = -1, stdout=subprocess.PIPE).communicate()[0]
       fastaIDs.extend(self.parse_hmmsearch_output(hmmSearch))
+    translReadsFile.close()
     # Keep only the unique IDs
     uniqFastaIDs = list(set(fastaIDs))
-    translReadsFile.close()
     return uniqFastaIDs
 
 
@@ -939,12 +941,14 @@ class AssemblyFactory(object) :
     self.insSize       = libParams.insertSize
     self.libSD         = libParams.standardDeviation
     self.coverage      = libParams.coverage
+    # A couple of calculated instance variables
     self.refNoSeqs     = FastaMetrics.count_fasta(assParams.assemblyReferenceFile)
+    self.refN50        = FastaMetrics.calculate_N50(assParams.assemblyReferenceFile)
 
 
   def __call__(self, readsFastaFileList) :
     """Caller It actually prerforms the denovo assembly and selects the one
-    with the highest N50 and less number of nodes.
+    with the highest N50 and less number of nodes ("best").
     Returns the contigs fasta file of the best assembly.
 
     @param readsFastaFileList: A list containing all the reads files in fasta.gz
@@ -952,7 +956,7 @@ class AssemblyFactory(object) :
     @type readsFastaFileList: C{'list'}
     @rtype : C{'file'}
     """
-    N50         = 0
+    N50diff     = float('inf')
     contigDiff  = float('inf')
     returnFile  = ''
     bestDir     = ''
@@ -964,8 +968,8 @@ class AssemblyFactory(object) :
       for f in readsFastaFileList :
         readsFastaFiles = readsFastaFiles + ' %s' % f
       for kmer in self.kmers :
-        velvethCmd = 'velveth velvetAssembly_k%i ' % kmer + str(kmer) + ' -shortPaired -fasta.gz %s' % readsFastaFiles
-        velvetgCmd = 'velvetg velvetAssembly_k%i -cov_cutoff auto -ins_length_sd %i  -ins_length %i -exp_cov %i -amos_file -unused_reads' % (kmer, self.libSD, self.insSize, self.coverage / 2.0)
+        velvethCmd = 'velveth velvetAssembly_k%i %s -shortPaired -fasta.gz %s' % (kmer, kmer, readsFastaFiles)
+        velvetgCmd = 'velvetg velvetAssembly_k%i -ins_length_sd %i -ins_length %i -cov_cutoff auto -exp_cov auto' % (kmer, self.libSD, self.insSize) # if you want put this also later '-amos_file -unused_reads'
         # Execute the assemblies.
         subprocess.call(shlex.split(velvethCmd), bufsize = -1)
         subprocess.call(shlex.split(velvetgCmd), bufsize = -1)
@@ -974,16 +978,16 @@ class AssemblyFactory(object) :
         contigsFile = assDir + '/contigs.fa'
         noNodes   = FastaMetrics.count_fasta(contigsFile)
         contigN50 = FastaMetrics.calculate_N50(contigsFile)
-        if (noNodes - self.refNoSeqs) <= contigDiff and contigN50 >= N50 :
-          # Get the difference from the reference number of sequences
-          contigDifftmp = noNodes - self.refNoSeqs
-          if contigDifftmp >= 0 : # Force the assembler to always make AT LEAST self.refNoSeqs contigs
-            # After checking for the above condition set the "best" assembly.
+        # These are the conditions for getting the "best" assembly!
+        if (contigN50 - self.refN50) <= 0 and (noNodes - self.refNoSeqs) >= 0 :
+          if (self.refN50 - contigN50) <= N50diff  and (noNodes - self.refNoSeqs) <= contigDiff :
+            # After checking for the above conditions set the "best" assembly.
             returnFile = contigsFile
             bestDir    = assDir
-            N50        = contigN50
-            contigDiff = contigDifftmp
+            N50diff    = self.refN50 - contigN50
+            contigDiff = noNodes - self.refNoSeqs
         print '\n Assembly N50 : %i\n nodes : %i\n' % (contigN50, noNodes)
+        print '\n N50diff : %.1f\n contigDiff : %.1f\n' % (N50diff, contigDiff)
     # Remove the extraenous assembly direcotries.
     assDirs = ['velvetAssembly_k' + str(k) for k in self.kmers]
     assDirs.remove(bestDir)
@@ -993,21 +997,20 @@ class AssemblyFactory(object) :
 
 
   def assess_assembly(self, contigsFile, assemblyStatsFile, refType) :
-    """Method to perform a comparison of a given assembly with a refference
-    one.
+    """Method to perform an evaluation of a given assembly with the reference one.
 
-    Returns measures of similaties between two assemblies.
+    Returns measures of similaties between the "best" and the reference assembly.
     @param refType: Specify the type of the refernce sequences.
     @type refType: C{'str'}
     """
     # Check for the existance and set the reference BLAST database.
     if refType == 'nucl' :
       if not os.path.exists(self.referenceFile + '.nsq') :
-        dbCmd = 'makeblastdb -in ' + self.referenceFile + ' -dbtype nucl'
+        dbCmd = 'makeblastdb -in %s -dbtype nucl' % self.referenceFile
         subprocess.call(shlex.split(dbCmd))
     if refType == 'prot' :
       if not os.path.exists(self.referenceFile + '.psq') :
-        dbCmd = 'makeblastdb -in ' + self.referenceFile
+        dbCmd = 'makeblastdb -in %s' % self.referenceFile
         subprocess.call(shlex.split(dbCmd))
     # Collect some measures of the files.
     refNoSeqs     = self.refNoSeqs
@@ -1020,7 +1023,7 @@ class AssemblyFactory(object) :
     if refType == 'nucl' :
       cmdBLASTLine = NcbiblastnCommandline(query = contigsFile, db = self.referenceFile, task = 'blastn', outfmt = 5, culling_limit = 1, max_target_seqs = 1, evalue = 1e-10)
     elif refType == 'prot' :
-      cmdBLASTLine = NcbitblastxCommandline(query = contigsFile, db = self.referenceFile, outfmt = 5, culling_limit = 1, max_target_seqs = 1, evalue = 1e-10)
+      cmdBLASTLine = NcbiblastxCommandline(query = contigsFile, db = self.referenceFile, outfmt = 5, culling_limit = 1, max_target_seqs = 1, evalue = 1e-10)
     else :
       raise StandardError, 'BLAST database type wrong. Only "nucl" and "prot" are supported.'
     xmlOut, stdErr = cmdBLASTLine()
@@ -1047,7 +1050,7 @@ class AssemblyFactory(object) :
             totalGaps = totalGaps + gaps
         blastHits = blastHits + 1
     # Calculate a distance measure form the reference assembly.
-    distance = math.sqrt(math.fabs(((refNoNucl - totalMatches + totalMissmatches + totalGaps) / float(contigsNoNucl)) + ((refNoSeqs - blastHits) / float(contigsNo))))
+    distance = math.sqrt( ((2*refNoNucl - totalMatches + totalMissmatches + totalGaps - contigsNoNucl) / float(contigsNoNucl)) ** 2 + ((2*refNoSeqs - blastHits - contigsNo) / float(contigsNo)) ** 2 )
 # distance measure used in the aegilops workshop   distance = math.sqrt((((refNoNucl + contigsNoNucl - (2 * totalMatches)) + (0.5 * totalMissmatches) + totalGaps) / float(meanRefLength)) + ((contigsNo - blastHits) / float(contigsNo)))
     assemblyAssessFile = open(assemblyStatsFile, 'w')
     assemblyAssessFile.write('Reference Sequences        : %i\n' % refNoSeqs)
@@ -1063,7 +1066,7 @@ class AssemblyFactory(object) :
     assemblyAssessFile.write('Relative Assembled Matches : %.2f\n' % (100 * totalMatches/float(contigsNoNucl)))
     assemblyAssessFile.write('Relative Reference Hits    : %.2f\n' % (100 * blastHits/float(refNoSeqs)))
     assemblyAssessFile.write('Relative Assembled Matches : %.2f\n' % (100 * blastHits/float(contigsNo)))
-    assemblyAssessFile.write('Perfect Assembly Distance  : %.3f\n' % distance)
+    assemblyAssessFile.write('Perfect Assembly Distance  : %.5f\n' % distance)
     assemblyAssessFile.close()
     blastOutfile.close()
     os.unlink('/tmp/simulatorBLASTOut.xml')
