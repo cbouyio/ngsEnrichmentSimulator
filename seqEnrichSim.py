@@ -20,7 +20,8 @@ import string
 import subprocess
 import shlex
 import shutil
-import os.path
+import os
+#import os.path
 import tempfile
 import math
 import gzip
@@ -91,20 +92,6 @@ class TranscirptomeSequence(AbstactReference) :
 
 
 
-class Predator(object) :
-  """Superclass to represent sequences of interest.
-
-  These are the sequences that will be generating the probes (baits) on the
-  capture array for sequencing enrichment.
-  E.g. genes of interest, protein families of interest.
-  """
-
-  def __init__(self, targetFastaFile) :
-    """Constructor.
-
-    """
-
-
 
 class Experiment(object) :
   """A class to represent an individual experiment.
@@ -116,17 +103,6 @@ class Experiment(object) :
 
     """
 
-
-
-class CaptureArray(object) :
-  """Class to represent a capture array.
-
-  """
-
-  def __init__(self) :
-    """Constructor.
-
-    """
 
 
 
@@ -181,6 +157,8 @@ class ParametersParser(object) :
         return self.parse_experiment_type_parameters()
       elif paramBlock == '#LibraryParamaters' :
         return self.parse_library_parameters()
+      elif paramBlock == '#SequenceEnrichmentParameters' :
+        return self.parse_baits_parameters()
       elif paramBlock == '#NGSparameters' :
         return self.parse_ngs_parameters()
       elif paramBlock == '#SequenceHomologyParameters' :
@@ -199,13 +177,14 @@ class ParametersParser(object) :
     rndSeed = parse_next_parameter_block_header('randomSeed')
     expP    = parse_next_parameter_block_header('#experimentType')
     libP    = parse_next_parameter_block_header('#LibraryParamaters')
+    baitP   = parse_next_parameter_block_header('#BaitsParameters')
     ngsP    = parse_next_parameter_block_header('#NGSparameters')
     seqHomP = parse_next_parameter_block_header('#SequenceHomologyParameters')
     assP    = parse_next_parameter_block_header('#AssemblyParameters')
     # Append the random seed to Parameters subclasses.
     libP.append(rndSeed)
     ngsP.append(rndSeed)
-    return Parameters(rndSeed, ExperimentParameters(expP), LibraryParameters(libP), NGSParameters(ngsP), SeqHomologyParameters(seqHomP), AssemblyParameters(assP))
+    return Parameters(rndSeed, ExperimentParameters(expP), LibraryParameters(libP), BaitsParameters(baitP), NGSParameters(ngsP), SeqHomologyParameters(seqHomP), AssemblyParameters(assP))
 
 
   def parse_experiment_type_parameters(self) :
@@ -237,6 +216,22 @@ class ParametersParser(object) :
     return libraryParamtersList
 
 
+  def parse_baits_parameters(self) :
+    """Parse the baits design control parameters section of the parameters file.
+
+    """
+    baitsParamtersList = []
+    fl = self.parse_next_name_value('baitFile')
+    baitsParamtersList.append(str(fl))
+    bl = self.parse_next_name_value('baitLength')
+    baitsParamtersList.append(int(bl))
+    nb = self.parse_next_name_value('overlap')
+    baitsParamtersList.append(int(nb))
+    af = self.parse_next_name_value('affinity')
+    baitsParamtersList.append(int(af))
+    return baitsParamtersList
+
+
   def parse_ngs_parameters(self) :
     """Parse the NGS parameters section of the control parameters file.
 
@@ -261,7 +256,6 @@ class ParametersParser(object) :
     else :
       raise StandardError, 'Value "%s" not supported. Specify one of "True" or "False" for "erroModel" field.' % em
     #TODO at some point find a more clever way to deal with this extraneous thing in the parser...
-#    if em == 'True' : #!!!
     er = self.parse_next_name_value('errorRates')
     ers = []
     for error in er.split(';') :
@@ -341,7 +335,7 @@ class Parameters(object) :
   Implements a str method to print out parameter name:value pairs.
   """
 
-  def __init__(self, rndSeed, expParams, libraryParams, ngsParams, seqHomolParams, assParams) :
+  def __init__(self, rndSeed, expParams, libraryParams, baitsParams, ngsParams, seqHomolParams, assParams) :
     """Constructor.
 
     The class implements a print parameters method.
@@ -349,6 +343,7 @@ class Parameters(object) :
     self.rndSeed            = rndSeed
     self.expParameters      = expParams
     self.libraryParameters  = libraryParams
+    self.baitsParameters    = baitsParams
     self.ngsParameters      = ngsParams
     self.seqHomolParameters = seqHomolParams
     self.assemblyParameters = assParams
@@ -401,6 +396,22 @@ class LibraryParameters(Parameters) :
     self.standardDeviation = libraryParametersList[2]
     self.coverage          = libraryParametersList[3]
     self.rndSeed           = libraryParametersList[4]
+
+
+
+class BaitsParameters(Parameters) :
+  """Class to hold the bait design control parameters.
+
+  """
+
+  def __init__(self, baitParametersList) :
+    """Constructor.
+
+    """
+    self.baitFileName = baitParametersList[0]
+    self.baitLength   = baitParametersList[1]
+    self.overlap      = baitParametersList[2]
+    self.affinity     = baitParametersList[3]
 
 
 
@@ -499,7 +510,7 @@ class LibraryFactory(object) :
 
 
   def __call__(self, refFastaFile, seqParams) :
-    """Caller to generate a sequencing library.
+    """Caller to generate a sequencing li1Gbrary.
 
     Factory method that generates the clones of a library.
     Returns a Bio.SeqIO.SeqRecord with all the library clones.
@@ -556,6 +567,121 @@ class LibraryFactory(object) :
         seqClones.append(fragmentCoords)
       libraryClonesCoords.append(seqClones)
     return libraryClonesCoords
+
+
+
+class BaitFactory(object) :
+  """ Class to represent the a bait library.
+
+  """
+
+  def __init__(self, baitDesignParams) :
+    """Construct a BaitFactory object.
+
+    """
+    self.baitFile     = baitDesignParams.baitFileName
+    self.baitLength   = baitDesignParams.baitLength
+    self.overlap      = baitDesignParams.overlap
+    self.affinity     = baitDesignParams.affinity
+    self.baitsLibrary = tempfile.NamedTemporaryFile("w", delete= False)
+
+
+  def __call__(self) :
+    """Call the bait factory object and generate the bait sequences.
+
+    Write in the self.baitsLibrary fasta file the baits and thier unique ID.
+    """
+    baitList = [] # Initialise the baits seqRec list.
+    baitCount = 1
+    for seqRec in SeqIO.parse(self.baitFile, "fasta") :
+      # to check the repetition for the overlaping
+      for i in range(0, self.baitLength, self.baitLength/self.overlap ) :
+        for j in range(i, len(seqRec), self.baitLength) :
+          if (j + self.baitLength) < len(seqRec) :
+            bait = seqRec.seq[j:(j + self.baitLength)]
+            baitRec = SeqRecord(bait)
+            baitRec.id = "bait_%.6i" % baitCount
+            baitRec.description = ''
+            baitList.append(baitRec)
+            baitCount = baitCount + 1
+      # last repetion to cover the last part of the sequence.
+      bait = seqRec.seq[len(seqRec) - self.baitLength:]
+      baitRec = SeqRecord(bait)
+      baitRec.id = "bait_%.6i" % baitCount
+      baitRec.description = ''
+      baitList.append(baitRec)
+#    baitsFile = open(baitsFilename, "w")
+    SeqIO.write(baitList, self.baitsLibrary, "fasta")
+    self.baitsLibrary.close()
+    return self.baitsLibrary
+
+
+
+class HybridisationFactory(object) :
+  """Class to represnt and conduct a hybridisation experiment.
+
+  """
+
+  def __init__(self, refFile, libraryClones, baitsFile) :
+    """The constructor.
+
+    """
+    self.libraryClonesFile = tempfile.NamedTemporaryFile("w", delete= False)
+    self.baitsFile         = baitsFile
+    # Populate the library file with clones.
+    seqs = 0
+    cloneNum = 1
+    clonesList = [] # List of SeqRecord objects representing clones.
+    for sequence in SeqIO.parse(refFile, "fasta") :
+      clonesCoords = libraryClones[seqs]
+      for cloneCoord in clonesCoords :
+        clone = sequence[cloneCoord[0]:cloneCoord[1]]
+        clone.description = ''
+        clone.id = "clone_%.7i" % cloneNum + "_%i_%s_%s" % (seqs, cloneCoord[0], cloneCoord[1])
+        clonesList.append(clone)
+        cloneNum = cloneNum + 1
+      seqs = seqs + 1
+    # Write the list to the temp file.
+    SeqIO.write(clonesList, self.libraryClonesFile, "fasta")
+    self.libraryClonesFile.close()
+    self.noRefSeqs = seqs
+
+
+  def __call__(self, baitParams) :
+    """Perform the hybridisation experiment and return a list of lists with the library clone coordinates.
+
+    """
+    ## Use an ungapped BLAST searhc to simulate hybridisation.
+    # Clones library BLAST database.
+    dbCmd = 'makeblastdb -in %s -dbtype nucl' % self.libraryClonesFile.name
+    subprocess.call(shlex.split(dbCmd))
+    # Perform the BLAST search
+    blastCmd = NcbiblastnCommandline(query = self.baitsFile.name, db = self.libraryClonesFile.name, task = 'blastn', outfmt = '\'6 sseqid length mismatch evalue\'', ungapped = True, culling_limit = 1, evalue = 1e-5)
+    blastOut, blastStdErr = blastCmd()
+    # Generate a tmp file for the BLAST output.
+    blastOutFH = tempfile.NamedTemporaryFile()
+    blastOutFH.write(blastOut)
+    blastOutFH.flush()
+    # Parse the blast out and select the clones.
+    cloneIDs = []
+    for line in open(blastOutFH.name) :
+      ele = line.split('\t')
+      # Condition to select a hybridisation, allow only 3 mismatches!
+      if int(ele[2]) + (baitParams.baitLength - int(ele[1])) <= 3 :
+        cloneIDs.append(ele[0])
+    print cloneIDs
+    print len(cloneIDs)
+    # After that retrieve the coordinates and report them.
+    hybridysedClonesCoords = [[] for n in range(self.noRefSeqs)]
+    for cloneId in cloneIDs :
+      ele = cloneId.split("_")
+      print ele
+      # Populate the list of lists of hybridised coords with the information from the cloneId
+      hybridysedClonesCoords[int(ele[2])].append([int(ele[3]), int(ele[4])])
+    # Delete the temp files after use them.
+    os.remove(self.libraryClonesFile.name)
+    os.remove(self.baitsFile.name)
+    return hybridysedClonesCoords
 
 
 
@@ -631,14 +757,14 @@ class NGSFactory(object) :
         if rn > 0.5 :
           read1.seq = read1.seq.reverse_complement()
         read1.description = ''
-        read1.id = clone.id + 'frgmnt' + str(cloneCoord[0]) + '_' + str(cloneCoord[1]) + '_read_1'
+        read1.id = clone.id + 'frgmnt' + str(cloneCoord[0]) + '_' + str(cloneCoord[1]) + '_read'
         if self.pairedEnd :
           read2 = clone[(len(clone) - self.readLength):]
           if rn <= 0.5 :
             read2.seq = read2.seq.reverse_complement()
           read2.description = ''
-          read2.id = clone.id + 'frgmnt' + str(cloneCoord[0]) + '_' + str(cloneCoord[1]) + '_read_2'
-          read1.id = clone.id + 'frgmnt' + str(cloneCoord[0]) + '_' + str(cloneCoord[1]) + '_read_1'
+          read2.id = clone.id + 'frgmnt' + str(cloneCoord[0]) + '_' + str(cloneCoord[1]) + '_read_1' #FIXME set the names of the reads
+          read1.id = clone.id + 'frgmnt' + str(cloneCoord[0]) + '_' + str(cloneCoord[1]) + '_read_2' #according to their origin...
           readsList.append(read2)
         readsList.append(read1)
       if self.errorModel :
@@ -840,11 +966,11 @@ class SequenceHomolgyFactory(object) :
       dbCmd = 'makeblastdb -in %s -dbtype nucl' % self.blastDB
       subprocess.call(shlex.split(dbCmd))
     # Set up the BLASTn command line call.
-    cmdBLASTLine = NcbiblastnCommandline(query = readsFile, db = self.blastDB, task = 'blastn', outfmt = '\'6 qseqid length pident\'', culling_limit = 1, evalue = 0.01, max_target_seqs = 1)
-    blastXmlOut, blastStdErr = cmdBLASTLine()
+    cmdBLASTLine = NcbiblastnCommandline(query = readsFile, db = self.blastDB, task = 'blastn', outfmt = '\'6 qseqid length pident\'', culling_limit = 1, evalue = 0.001, max_target_seqs = 1)
+    blastOut, blastStdErr = cmdBLASTLine()
     # Generate a tmp file for the BLAST output.
     blastOutFH = tempfile.NamedTemporaryFile()
-    blastOutFH.write(blastXmlOut)
+    blastOutFH.write(blastOut)
     blastOutFH.flush()
     # Simple parsing of the BLAST output
     blastHitsIDs = []
@@ -884,7 +1010,7 @@ class SequenceHomolgyFactory(object) :
     fastaIDs = []
     for i in xrange(len(self.hmmProfiles)) :
       # Compile the command line call.
-      hmmCmd = 'hmmsearch --noali --domE %f %s %s' % (self.hmmEvalues[i], self.hmmProfiles[i], translReadsFile.name)
+      hmmCmd = 'hmmsearch --noali --domE %s %s %s' % (self.hmmEvalues[i], self.hmmProfiles[i], translReadsFile.name)
       # Run the HMM and collect the read names.
       hmmSearch = subprocess.Popen(shlex.split(hmmCmd), bufsize = -1, stdout=subprocess.PIPE).communicate()[0]
       fastaIDs.extend(self.parse_hmmsearch_output(hmmSearch))
@@ -931,7 +1057,7 @@ class AssemblyFactory(object) :
 
   """
 
-  def __init__(self, assParams, libParams) :
+  def __init__(self, assParams, libParams, tp = 'genomic') :
     """The constructor.
 
     """
@@ -941,6 +1067,8 @@ class AssemblyFactory(object) :
     self.insSize       = libParams.insertSize
     self.libSD         = libParams.standardDeviation
     self.coverage      = libParams.coverage
+    #TODO develope a more comprehensive way to deal with different assembly types (i.e. communicate with the experiment type).
+    self.assemblyType  = tp
     # A couple of calculated instance variables
     self.refNoSeqs     = FastaMetrics.count_fasta(assParams.assemblyReferenceFile)
     self.refN50        = FastaMetrics.calculate_N50(assParams.assemblyReferenceFile)
@@ -967,25 +1095,37 @@ class AssemblyFactory(object) :
       readsFastaFiles = ''
       for f in readsFastaFileList :
         readsFastaFiles = readsFastaFiles + ' %s' % f
+      #FIXME fix the velveth call such that it sorts out the parameters from the sequence parameter list (i.e. the paired end or single end reads)
       for kmer in self.kmers :
         velvethCmd = 'velveth velvetAssembly_k%i %s -shortPaired -fasta.gz %s' % (kmer, kmer, readsFastaFiles)
-        velvetgCmd = 'velvetg velvetAssembly_k%i -ins_length_sd %i -ins_length %i -cov_cutoff auto -exp_cov auto' % (kmer, self.libSD, self.insSize) # if you want put this also later '-amos_file -unused_reads'
+        # Deal with transcriptome assemblies.
+        if self.assemblyType == 'genomic' :
+          velvetgCmd = 'velvetg velvetAssembly_k%i -ins_length_sd %i -ins_length %i -cov_cutoff auto -exp_cov auto' % (kmer, self.libSD, self.insSize) # if you want put this also later '-amos_file -unused_reads'
+        elif self.assemblyType == 'transcriptome' :
+          velvetgCmd = 'velvetg velvetAssembly_k%i -ins_length_sd %i -ins_length %i -cov_cutoff auto -exp_cov auto -read_trkg yes' % (kmer, self.libSD, self.insSize) # if you want put this also later '-amos_file -unused_reads'
+          oasesCmd = 'oases velvetAssembly_k%i -ins_length_sd %i -ins_length %i -cov_cutoff auto -min_trans_lgth %i' % (kmer, self.libSD, self.insSize, 2*kmer)
+        else :
+          raise StandardError, 'Unsupported assembly type entered'
         # Execute the assemblies.
         subprocess.call(shlex.split(velvethCmd), bufsize = -1)
         subprocess.call(shlex.split(velvetgCmd), bufsize = -1)
+        if self.assemblyType == 'transcriptome' :
+          subprocess.call(shlex.split(oasesCmd), bufsize = -1)
         # Evaluate the assembly quality.
         assDir = 'velvetAssembly_k' + str(kmer)
         contigsFile = assDir + '/contigs.fa'
+        if self.assemblyType == 'transcriptome' :
+          contigsFile = assDir + '/transcripts.fa'
         noNodes   = FastaMetrics.count_fasta(contigsFile)
         contigN50 = FastaMetrics.calculate_N50(contigsFile)
         # These are the conditions for getting the "best" assembly!
-        if (contigN50 - self.refN50) <= 0 and (noNodes - self.refNoSeqs) >= 0 :
-          if (self.refN50 - contigN50) <= N50diff  and (noNodes - self.refNoSeqs) <= contigDiff :
+        if (contigN50 - self.refN50) <= 0 : # and (noNodes - self.refNoSeqs) >= 0 : .. abandon for the moment this idea
+          if (self.refN50 - contigN50) <= N50diff  and math.fabs(noNodes - self.refNoSeqs) <= contigDiff :
             # After checking for the above conditions set the "best" assembly.
             returnFile = contigsFile
             bestDir    = assDir
             N50diff    = self.refN50 - contigN50
-            contigDiff = noNodes - self.refNoSeqs
+            contigDiff = math.fabs(noNodes - self.refNoSeqs)
         print '\n Assembly N50 : %i\n nodes : %i\n' % (contigN50, noNodes)
         print '\n N50diff : %.1f\n contigDiff : %.1f\n' % (N50diff, contigDiff)
     # Remove the extraenous assembly direcotries.
@@ -1021,35 +1161,41 @@ class AssemblyFactory(object) :
     # Then perform a BLAST search between the current and the reference
     # assembly.
     if refType == 'nucl' :
-      cmdBLASTLine = NcbiblastnCommandline(query = contigsFile, db = self.referenceFile, task = 'blastn', outfmt = 5, culling_limit = 1, max_target_seqs = 1, evalue = 1e-10)
+      cmdBLASTLine = NcbiblastnCommandline(query = contigsFile, db = self.referenceFile, task = 'blastn', outfmt = "'10 nident mismatch gapopen'", culling_limit = 1, max_target_seqs = 1, evalue = 1e-10)
     elif refType == 'prot' :
       cmdBLASTLine = NcbiblastxCommandline(query = contigsFile, db = self.referenceFile, outfmt = 5, culling_limit = 1, max_target_seqs = 1, evalue = 1e-10)
     else :
       raise StandardError, 'BLAST database type wrong. Only "nucl" and "prot" are supported.'
-    xmlOut, stdErr = cmdBLASTLine()
+    blastOut, stdErr = cmdBLASTLine()
     #TODO Generate a safe tmp file using the tempfile Python module.
     blastOutfile = open('/tmp/simulatorBLASTOut.xml', 'w')
-    blastOutfile.write(xmlOut)
+    blastOutfile.write(blastOut)
     blastOutfile.close()
     blastOutfile = open('/tmp/simulatorBLASTOut.xml', 'r')
-    blastRecords = NCBIXML.parse(blastOutfile)
+#    blastRecords = NCBIXML.parse(blastOutfile)
     totalMatches = 0
     totalMissmatches = 0
     totalGaps = 0
     blastHits = 0
-    for rec in blastRecords :
-      if rec.alignments :
-        for align in rec.alignments :
-          for hsp in align.hsps :
-            #TODO: Assemble the "coverage" of the reference sequence and count the matches etc there as well!!!!
-            gaps = hsp.sbjct.count('-') + hsp.query.count('-')
-            missmatches = hsp.match.count(' ') - gaps
-            matches = hsp.identities
-            totalMatches = totalMatches + matches
-            totalMissmatches = totalMissmatches + missmatches
-            totalGaps = totalGaps + gaps
-        blastHits = blastHits + 1
-    # Calculate a distance measure form the reference assembly.
+#    #FIXME Check the BLAST parser and the counts below... some inconsistency has been observed in a self blast experiment! FIXED but check the implementation f the Biopython parser...!!!!!!
+#    for rec in blastRecords :
+#      if rec.alignments :
+#        for align in rec.alignments :
+#          for hsp in align.hsps :
+#            gaps = hsp.gaps #hsp.sbjct.count('-') + hsp.query.count('-')
+#            missmatches = hsp.match.count(' ') - gaps
+#            matches = hsp.positives
+#            totalMatches = totalMatches + matches
+#            totalMissmatches = totalMissmatches + missmatches
+#            totalGaps = totalGaps + gaps
+#        blastHits = blastHits + 1
+#    # Calculate a distance measure form the reference assembly.
+    for line in blastOutfile :
+      numbers = line.split(',')
+      totalMatches = totalMatches + int(numbers[0])
+      totalMissmatches = totalMissmatches + int(numbers[1])
+      totalGaps = totalGaps + int(numbers[2])
+      blastHits = blastHits + 1
     distance = math.sqrt( ((2*refNoNucl - totalMatches + totalMissmatches + totalGaps - contigsNoNucl) / float(contigsNoNucl)) ** 2 + ((2*refNoSeqs - blastHits - contigsNo) / float(contigsNo)) ** 2 )
 # distance measure used in the aegilops workshop   distance = math.sqrt((((refNoNucl + contigsNoNucl - (2 * totalMatches)) + (0.5 * totalMissmatches) + totalGaps) / float(meanRefLength)) + ((contigsNo - blastHits) / float(contigsNo)))
     assemblyAssessFile = open(assemblyStatsFile, 'w')
@@ -1079,7 +1225,6 @@ class AssemblyFactory(object) :
 #      os.unlink('bestAssemblyContigs.fasta.pin')
 #      os.unlink('bestAssemblyContigs.fasta.psq')
     return distance
-
 
   def assembly_quality(self, contigsFile) :
     """Method to perform quality control of the assembly.

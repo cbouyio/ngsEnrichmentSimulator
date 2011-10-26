@@ -5,8 +5,6 @@
 
 import os
 import argparse
-#import subprocess
-#import shlex
 import shutil
 import gzip
 
@@ -19,6 +17,7 @@ parser = argparse.ArgumentParser(description='Conduct a sequence enrichment simu
 parser.add_argument('-p', '--params', type=str, metavar = '<control_parameters_file>', required = True, help = 'The simulator control parameters file, usualy a .cpf file (compulsory).', dest = 'paramFile')
 parser.add_argument('-i', '--infiles', type=str, metavar = '<template_sequence_FASTA_file>', required = True, nargs = '+', help = 'Whitespace separated filenames, specifying the genomic/transcriptomic template sequence fasta files (compulsory).', dest = 'infileList')
 parser.add_argument('-r', '--seedCorrector', metavar = '<rndSeed_Corrector>', type = int, help = 'A correector for the rndSeed of the library generation procedure, to be used when single sequence template files from the same source are used in each individual run of the simulator.', dest = 'rndSeedCorr', default = 0)
+parser.add_argument('-a', '--assembly', metavar = '<type_of_assembly>', type = str, help = 'String specifying the type of the assembly (in agreement with the template file)', dest = 'assemblyType', default = 'genomic')
 
 # Generate the arguments list namespace.
 ns = parser.parse_args()
@@ -38,11 +37,9 @@ cParams = cpParser.parse()
 
 ## All the components of the simulator will be checked and executed here.
 
-
 # Generate the NGS filenames.
 ngsType = cParams.ngsParameters.sequencingPlatform
 ngsFilesList = [name + '_' + ngsType + 'Reads.fasta.gz' for name in basenamesList]
-
 
 # Run the NGS simulation only for the files that is needed.
 rndSeedCorr = ns.rndSeedCorr
@@ -58,25 +55,24 @@ for i in xrange(len(ngsFilesList)) :
     ngsFact(libFragmentsCoords, ngsFilesList[i])
   rndSeedCorr = rndSeedCorr + 1
 
-
 # Generate the sequence homology filenames.
 seqHomolOufiles = [name + '_SeqHomol.fasta.gz' for name in basenamesList]
 
-# Check the existence of the selected reads FASTA files and conduct the
-# sequence homology experiments.
-for i in xrange(len(seqHomolOufiles)) :
-  if not os.path.exists(seqHomolOufiles[i]) :
-    # Instantiate the Sequence Homology class.
-    seqHomol = seqEnrichSim.SequenceHomolgyFactory(cParams.seqHomolParameters, cParams.ngsParameters)
-    # Execute the procedure.
-    #TODO change the output of SequenceHomolgyFactory to a fasta.gz file
-    seqHomolRecs = seqHomol(ngsFilesList[i], seqHomolOufiles[i])
-
+## Check the existence of the selected reads FASTA files and conduct the
+## sequence homology experiments.
+#for i in xrange(len(seqHomolOufiles)) :
+#  if not os.path.exists(seqHomolOufiles[i]) :
+#    # Instantiate the Sequence Homology class.
+#    seqHomol = seqEnrichSim.SequenceHomolgyFactory(cParams.seqHomolParameters, cParams.ngsParameters)
+#    # Execute the procedure.
+#    #TODO change the output of SequenceHomolgyFactory to a fasta.gz file
+#    seqHomolRecs = seqHomol(ngsFilesList[i], seqHomolOufiles[i])
 
 # Set the assembly files list
 assFilesList = []
 # Naive checking for the need to collect all the sequence homology files.
-# TODO change it ot perhaps someting more robust.
+# (it actually checks if 
+# TODO change it to perhaps someting more robust.
 if os.path.exists(seqHomolOufiles[0]) :
   assFilesList = seqHomolOufiles
 else :
@@ -86,7 +82,7 @@ else :
 assemblyFilename  = 'bestAssemblyContigs.fasta'
 assemblyStatsFile = 'bestAssemblyStats.txt'
 # Instantiate the assembly factory.
-assemblyFact = seqEnrichSim.AssemblyFactory(cParams.assemblyParameters, cParams.libraryParameters)
+assemblyFact = seqEnrichSim.AssemblyFactory(cParams.assemblyParameters, cParams.libraryParameters, ns.assemblyType)
 if not os.path.exists(assemblyFilename) :
   # Conduct the assembly.
   selectedAssemblyFile = assemblyFact(assFilesList)

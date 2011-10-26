@@ -4,15 +4,20 @@ randomSeed : 1
 test
 #LibraryParamaters
 libraryType        : genomicDNA
-insertSize         : 300
-standardDeviation  : 30
-coverage           : 40
+insertSize         : 500
+standardDeviation  : 50
+coverage           : 10
+#BaitsParameters
+baitFile   : nblrrGrass10.fasta
+baitLength : 120
+overlap    : 3
+affinity   : 95
 #NGSparameters
 sequencingPlatform : Illumina
 readLength         : 100
 pairedEnd          : True
 errorModel         : True
-errorRates         : 0.02;0.15
+errorRates         : 0.002;0.02
 #SequenceHomologyParameters
 hmmProfileFiles  : /home/bouyiouc/data/NBSLRR.hmm
 hmmEvalues       : 10
@@ -22,6 +27,6 @@ seqLengthAligned : 75
 #AssemblyParameters
 assembler         : velvet
 kmerSizes         : 41;43;45;47;49;51;53;55;57;59;61
-referenceAssembly : rice_NBS_CDS_494.fasta
+referenceAssembly : aaa
 #SequenceEnrichmentParameters
 -
