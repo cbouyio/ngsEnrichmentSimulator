@@ -137,21 +137,21 @@ class ParametersParser(object) :
     self.fh = fh
 
 
-  def parse(self) :
+  def parse(self):
     """Parse the parameters file and populate the instance variables of the
     relevant parameters objects.
     """
 
-    def parse_next_parameter_block_header(paramBlock) :
+    def parse_next_parameter_block_header(paramBlock):
       """Nested function to parse the next parameter block.
 
       @param paramBlock: A line from the control paramters file.
       @type paramBlock: C{'str'}
       """
       line = self.fh.readline().strip()
-      if not re.match(paramBlock, line) :
-        raise StandardError, 'Expected "%s", got "%s"' % (paramBlock, line)
-      if paramBlock == 'randomSeed' :
+      if not re.match(paramBlock, line):
+        raise (StandardError, f'Expected "{paramBlock}", got "{line}"')
+      if paramBlock == 'randomSeed':
         return int(line.split(':')[1])
       elif paramBlock == '#experimentType' :
         return self.parse_experiment_type_parameters()
@@ -165,15 +165,21 @@ class ParametersParser(object) :
         return self.parse_seq_homol_params()
       elif paramBlock == '#AssemblyParameters' :
         return self.parse_assembly_params()
-      else :
-        raise StandardError, 'parameter block header "%s" is not recognised as a seqEnrichSim parameter block' % paramBlock
+      else:
+        raise (
+            StandardError,
+            f'parameter block header "{paramBlock}" is not recognised as a seqEnrichSim parameter block',
+        )
 
     # The implementation of the parser.
     line = self.fh.readline().strip()
     if line == '' :
       raise StandardError, 'expected magic but got EOF'
-    if line != self.magic :
-      raise StandardError, 'File is not starting with magic line "%s", it is not a valid sequence enrichment simulator control parameter file' % self.magic
+    if line != self.magic:
+      raise (
+          StandardError,
+          f'File is not starting with magic line "{self.magic}", it is not a valid sequence enrichment simulator control parameter file',
+      )
     rndSeed = parse_next_parameter_block_header('randomSeed')
     expP    = parse_next_parameter_block_header('#experimentType')
     libP    = parse_next_parameter_block_header('#LibraryParamaters')
@@ -187,26 +193,26 @@ class ParametersParser(object) :
     return Parameters(rndSeed, ExperimentParameters(expP), LibraryParameters(libP), BaitsParameters(baitP), NGSParameters(ngsP), SeqHomologyParameters(seqHomP), AssemblyParameters(assP))
 
 
-  def parse_experiment_type_parameters(self) :
+  def parse_experiment_type_parameters(self):
     """Parse the experiment type parameters section of the parametrs file.
 
     """
-    experimetTypeParamsList = []
     line = self.fh.readline().strip()
-    if line not in self.experimentTypeValues :
-      raise StandardError, 'Exteriment type not supported. Please specify one of the %s' % self.experimentTypeValues
-    experimetTypeParamsList.append(line)
-    return experimetTypeParamsList
+    if line not in self.experimentTypeValues:
+      raise (
+          StandardError,
+          f'Exteriment type not supported. Please specify one of the {self.experimentTypeValues}',
+      )
+    return [line]
 
 
-  def parse_library_parameters(self) :
+  def parse_library_parameters(self):
     """Parse the library control parameters section of the parameters file.
 
     """
-    libraryParamtersList = []
     # Go over the block line by line
     lt = self.parse_next_name_value('libraryType')
-    libraryParamtersList.append(str(lt))
+    libraryParamtersList = [str(lt)]
     ins = self.parse_next_name_value('insertSize')
     libraryParamtersList.append(int(ins))
     sd = self.parse_next_name_value('standardDeviation')
@@ -216,13 +222,12 @@ class ParametersParser(object) :
     return libraryParamtersList
 
 
-  def parse_baits_parameters(self) :
+  def parse_baits_parameters(self):
     """Parse the baits design control parameters section of the parameters file.
 
     """
-    baitsParamtersList = []
     fl = self.parse_next_name_value('baitFile')
-    baitsParamtersList.append(str(fl))
+    baitsParamtersList = [str(fl)]
     bl = self.parse_next_name_value('baitLength')
     baitsParamtersList.append(int(bl))
     nb = self.parse_next_name_value('overlap')
@@ -232,57 +237,55 @@ class ParametersParser(object) :
     return baitsParamtersList
 
 
-  def parse_ngs_parameters(self) :
+  def parse_ngs_parameters(self):
     """Parse the NGS parameters section of the control parameters file.
 
     """
-    ngsParameters = []
     sp = self.parse_next_name_value('sequencingPlatform')
-    ngsParameters.append(str(sp))
+    ngsParameters = [str(sp)]
     rl = self.parse_next_name_value('readLength')
     ngsParameters.append(int(rl))
     pe = self.parse_next_name_value('pairedEnd')
-    if pe == 'True' :
-      ngsParameters.append(True)
-    elif pe == 'False' :
+    if pe == 'False':
       ngsParameters.append(False)
-    else :
-      raise StandardError, 'Value "%s" not supported. Specify one of "True" or "False" for the "pairedEnd" field.' % pe
+    elif pe == 'True':
+      ngsParameters.append(True)
+    else:
+      raise (
+          StandardError,
+          f'Value "{pe}" not supported. Specify one of "True" or "False" for the "pairedEnd" field.',
+      )
     em = self.parse_next_name_value('errorModel')
-    if em == 'True' :
-      ngsParameters.append(True)
-    elif em == 'False' :
+    if em == 'False':
       ngsParameters.append(False)
-    else :
-      raise StandardError, 'Value "%s" not supported. Specify one of "True" or "False" for "erroModel" field.' % em
+    elif em == 'True':
+      ngsParameters.append(True)
+    else:
+      raise (
+          StandardError,
+          f'Value "{em}" not supported. Specify one of "True" or "False" for "erroModel" field.',
+      )
     #TODO at some point find a more clever way to deal with this extraneous thing in the parser...
     er = self.parse_next_name_value('errorRates')
-    ers = []
-    for error in er.split(';') :
-      ers.append(float(error))
+    ers = [float(error) for error in er.split(';')]
     ngsParameters.append(ers)
     return ngsParameters
 
 
-  def parse_seq_homol_params(self) :
+  def parse_seq_homol_params(self):
     """Parse the Sequence Homology Parameters section of the control parameters
     file.
 
     """
-    seqhParams = []
     # Parse the hmm profile parameters
     hps = self.parse_next_name_value('hmmProfileFiles')
-    hpsl = []
-    for hp in hps.split(';') :
-      hpsl.append(hp)
+    hpsl = list(hps.split(';'))
     if hps in ('None', 'False') :
       hpsl = None
-    seqhParams.append(hpsl)
+    seqhParams = [hpsl]
     # Parse the hmm e-value parameters
     evs = self.parse_next_name_value('hmmEvalues')
-    evsl = []
-    for ev in evs.split(';') :
-      evsl.append(ev)
+    evsl = list(evs.split(';'))
     seqhParams.append(evsl)
     # Parse the BLASTDB parameters
     blastDB = self.parse_next_name_value('BLASTdatabase')
@@ -296,24 +299,21 @@ class ParametersParser(object) :
     return seqhParams
 
 
-  def parse_assembly_params(self) :
+  def parse_assembly_params(self):
     """Parse the Assembly Parameters block of the control parameters file.
 
     """
-    assParams = []
     ass = self.parse_next_name_value('assembler')
-    assParams.append(ass)
+    assParams = [ass]
     kmers = self.parse_next_name_value('kmerSize')
-    kml = []
-    for km in kmers.split(';') :
-      kml.append(int(km))
+    kml = [int(km) for km in kmers.split(';')]
     assParams.append(kml)
     assRef = self.parse_next_name_value('referenceAssembly')
     assParams.append(assRef)
     return assParams
 
 
-  def parse_next_name_value(self, name) :
+  def parse_next_name_value(self, name):
     """Check a name-colon-value pair line for the correct existence of name,
     return a list with the name value pair.
 
@@ -322,8 +322,8 @@ class ParametersParser(object) :
     @rtype: C{'str'}
     """
     line = self.fh.readline().strip()
-    if not re.match(name, line) :
-      raise StandardError, 'Expected "%s" got "%s"' % (name, line.split[0])
+    if not re.match(name, line):
+      raise (StandardError, f'Expected "{name}" got "{line.split[0]}"')
     return line.split(':')[1].strip()
 
 
@@ -509,7 +509,7 @@ class LibraryFactory(object) :
     self.rndSeedCorrector      = rndSeedCorrector
 
 
-  def __call__(self, refFastaFile, seqParams) :
+  def __call__(self, refFastaFile, seqParams):
     """Caller to generate a sequencing li1Gbrary.
 
     Factory method that generates the clones of a library.
@@ -532,7 +532,7 @@ class LibraryFactory(object) :
     # Initialise the list of lists of coords of library clones.
     libraryClonesCoords = []
     # Iterate over the parser object.
-    for sequence in SeqIO.parse(refFastaFile, 'fasta') :
+    for sequence in SeqIO.parse(refFastaFile, 'fasta'):
       seqClones = []
       refLength = len(sequence)
       if seqParams.PE :
@@ -540,7 +540,7 @@ class LibraryFactory(object) :
       else :
         noClones = int(math.ceil((self.libraryCoverage * refLength) / float(seqParams.readLength)))
       # Iterate over the number of clones.
-      for i in xrange(noClones) :
+      for _ in xrange(noClones):
         # While loop just to make sure we generate only positive lengths of fragment
         # sizes. (a small insert size with a high SD might occur in to several repetiions of this loop)
         while True :
@@ -721,7 +721,7 @@ class NGSFactory(object) :
     self.refSeqParser =  SeqIO.parse(refSequenceFile, 'fasta')
 
 
-  def __call__(self, libraryClonesCoords, gzFilename) :
+  def __call__(self, libraryClonesCoords, gzFilename):
     """Generate next generation sequencing reads. Generate the NGS reads
     according to the NGS parameters setting and writethem to a gziped file.
 
@@ -732,39 +732,42 @@ class NGSFactory(object) :
     @rtype: None
     """
     self.outFH = gzip.open(gzFilename, 'w')
-    if self.platform == 'Illumina' :
+    if self.platform == 'Illumina':
       self.generate_illumina_reads(libraryClonesCoords)
     elif self.platform == '454' :
       self.generate_454_reads(libraryClonesCoords)
-    else :
-      raise StandardError, 'Sequencing platform "%s" is not supported.' % self.platform
+    else:
+      raise (
+          StandardError,
+          f'Sequencing platform "{self.platform}" is not supported.',
+      )
     self.outFH.close()
 
 
-  def generate_illumina_reads(self, cloneListCoords) :
+  def generate_illumina_reads(self, cloneListCoords):
     """Generate simulated Illumina reads.
 
     @rtype: C{list} of C{class 'Bio.SeqRecord'}
     """
     readsList = []
     seq = 0
-    for sequence in self.refSeqParser :
+    for sequence in self.refSeqParser:
       clonesCoords = cloneListCoords[seq]
-      for cloneCoord in clonesCoords :
+      for cloneCoord in clonesCoords:
         clone = sequence[cloneCoord[0]:cloneCoord[1]]
         read1 = clone[:self.readLength]
         rn = self.rng.random()
         if rn > 0.5 :
           read1.seq = read1.seq.reverse_complement()
         read1.description = ''
-        read1.id = clone.id + 'frgmnt' + str(cloneCoord[0]) + '_' + str(cloneCoord[1]) + '_read'
-        if self.pairedEnd :
+        read1.id = f'{clone.id}frgmnt{str(cloneCoord[0])}_{str(cloneCoord[1])}_read'
+        if self.pairedEnd:
           read2 = clone[(len(clone) - self.readLength):]
           if rn <= 0.5 :
             read2.seq = read2.seq.reverse_complement()
           read2.description = ''
-          read2.id = clone.id + 'frgmnt' + str(cloneCoord[0]) + '_' + str(cloneCoord[1]) + '_read_1' #FIXME set the names of the reads
-          read1.id = clone.id + 'frgmnt' + str(cloneCoord[0]) + '_' + str(cloneCoord[1]) + '_read_2' #according to their origin...
+          read2.id = f'{clone.id}frgmnt{str(cloneCoord[0])}_{str(cloneCoord[1])}_read_1'
+          read1.id = f'{clone.id}frgmnt{str(cloneCoord[0])}_{str(cloneCoord[1])}_read_2'
           readsList.append(read2)
         readsList.append(read1)
       if self.errorModel :
@@ -780,7 +783,7 @@ class NGSFactory(object) :
     pass
 
 
-  def introduce_seq_errors(self, readsList) :
+  def introduce_seq_errors(self, readsList):
     """Introduce sequencing errors to reads generated by the NGS simulator.
 
     Currently implements only an Illumina sequencing error model.
@@ -826,7 +829,7 @@ class NGSFactory(object) :
       if nuc in nucleotides :
         nucleotides.remove(nuc)
       return random.choice(nucleotides) # More elegant!
-      # Introducing Ns (not in use at the moment)
+
 #      nuc = string.upper(nuc)
 #      nucleotides = ["N", "A", "G", "T", "C"]
 #      if nuc in nucleotides :
@@ -874,6 +877,7 @@ class NGSFactory(object) :
         # Substitute the error imposed sequence and convert it back to
         # imutable.
         read.seq = readSeq.toseq()
+
 #        # Some sanity check prints.
 #        print 'mutated : %s' % readSeq
 #      print errorModelDist
@@ -888,15 +892,16 @@ class NGSFactory(object) :
       Not implemented so far.
       """
       return readList
+
     # --- End of nested functions ---
 
     # Here is the actual implementation of the function introduce_seq_errors.
-    if self.platform == 'Illumina' :
+    if self.platform == 'Illumina':
       impose_illumina_errors(readsList)
     elif self.platform == '454' :
       impose_454_errors(readsList)
-    else :
-      raise StandardError, 'Sequencing platform "%s" not identified.' % self.platform
+    else:
+      raise (StandardError, f'Sequencing platform "{self.platform}" not identified.')
 
 
 
@@ -917,7 +922,7 @@ class SequenceHomolgyFactory(object) :
     self.ngsParams   = ngsParams
 
 
-  def __call__(self, readsFilegz, outfileName) :
+  def __call__(self, readsFilegz, outfileName):
     """The caller actualy conducts the search and returns the results in a
     *_SeqHomol.fasta file.
 
@@ -928,7 +933,7 @@ class SequenceHomolgyFactory(object) :
     @rtype: C{'None'}
     """
     # Check whether we need to perform any sequence homology search.
-    if not self.hmmProfiles and not self.hmmProfiles :
+    if not self.hmmProfiles:
       return None
 #    readsFH = open('/tmp/abcdefg.tmp', 'w')
     readsFH = tempfile.NamedTemporaryFile(mode = 'w', delete = False)
@@ -948,13 +953,11 @@ class SequenceHomolgyFactory(object) :
     seqHomolRecs = get_fasta_seqIDs(readsFH.name, uniqFastaIDs)
     # Remove the uncompresed reads file.
     os.remove(readsFH.name)
-    # Print the sequences on the relative file.
-    seqHomolFH = open(outfileName, 'w')
-    print_SeqRecord_list(seqHomolRecs, seqHomolFH)
-    seqHomolFH.close()
+    with open(outfileName, 'w') as seqHomolFH:
+      print_SeqRecord_list(seqHomolRecs, seqHomolFH)
 
 
-  def conduct_BLAST_search(self, readsFile) :
+  def conduct_BLAST_search(self, readsFile):
     """Comnduct the BLAST sequence homology search
 
     """
@@ -962,8 +965,8 @@ class SequenceHomolgyFactory(object) :
     if not self.blastDB :
       return []
     # Check the existence of the BLAST db
-    if not os.path.exists(self.blastDB + '.nsq') :
-      dbCmd = 'makeblastdb -in %s -dbtype nucl' % self.blastDB
+    if not os.path.exists(f'{self.blastDB}.nsq'):
+      dbCmd = f'makeblastdb -in {self.blastDB} -dbtype nucl'
       subprocess.call(shlex.split(dbCmd))
     # Set up the BLASTn command line call.
     cmdBLASTLine = NcbiblastnCommandline(query = readsFile, db = self.blastDB, task = 'blastn', outfmt = '\'6 qseqid length pident\'', culling_limit = 1, evalue = 0.001, max_target_seqs = 1)
@@ -982,20 +985,18 @@ class SequenceHomolgyFactory(object) :
         blastHitsIDs.append(ele[0])
     # Sort out the sequence reads.
     blastOutFH.close()
-    if self.ngsParams.PE :
-      # Remove the paired end ID
-      pReadIDs = [read[:-2] for read in blastHitsIDs]
-      pReadIDs = list(set(pReadIDs))
-      uniqBlasHitsPE = []
-      for hit in pReadIDs :
-        uniqBlasHitsPE.append(hit + '_1')
-        uniqBlasHitsPE.append(hit + '_2')
-      return uniqBlasHitsPE
-    else :
+    if not self.ngsParams.PE:
       return blastHitsIDs
+    # Remove the paired end ID
+    pReadIDs = [read[:-2] for read in blastHitsIDs]
+    pReadIDs = list(set(pReadIDs))
+    uniqBlasHitsPE = []
+    for hit in pReadIDs:
+      uniqBlasHitsPE.extend((f'{hit}_1', f'{hit}_2'))
+    return uniqBlasHitsPE
 
 
-  def conduct_hmmer_search(self, readsFile) :
+  def conduct_hmmer_search(self, readsFile):
     """Conduct the HMMer search.
 
     """
@@ -1004,23 +1005,21 @@ class SequenceHomolgyFactory(object) :
       return []
     # First generate the translated reads file.
     translReadsFile = tempfile.NamedTemporaryFile()
-    translCmd = 'transeq -frame 6 %s %s' % (readsFile, translReadsFile.name)
+    translCmd = f'transeq -frame 6 {readsFile} {translReadsFile.name}'
     # Execute the translation.
     subprocess.call(shlex.split(translCmd), bufsize = -1)
     fastaIDs = []
-    for i in xrange(len(self.hmmProfiles)) :
+    for i in xrange(len(self.hmmProfiles)):
       # Compile the command line call.
-      hmmCmd = 'hmmsearch --noali --domE %s %s %s' % (self.hmmEvalues[i], self.hmmProfiles[i], translReadsFile.name)
+      hmmCmd = f'hmmsearch --noali --domE {self.hmmEvalues[i]} {self.hmmProfiles[i]} {translReadsFile.name}'
       # Run the HMM and collect the read names.
       hmmSearch = subprocess.Popen(shlex.split(hmmCmd), bufsize = -1, stdout=subprocess.PIPE).communicate()[0]
       fastaIDs.extend(self.parse_hmmsearch_output(hmmSearch))
     translReadsFile.close()
-    # Keep only the unique IDs
-    uniqFastaIDs = list(set(fastaIDs))
-    return uniqFastaIDs
+    return list(set(fastaIDs))
 
 
-  def parse_hmmsearch_output(self, hmmSearch) :
+  def parse_hmmsearch_output(self, hmmSearch):
     """Extremly basic parser of the output of the hmmsearch program.
 
     Return only a list with the unique fasta IDs of the hits, as well as their
@@ -1036,18 +1035,15 @@ class SequenceHomolgyFactory(object) :
         # Keep the ID except the last two characters (the frame name)
         readID = str(line.split()[1])[:-2]
         readIDs.append(readID)
-    # Return two different list depending on paired ends.
-    if self.ngsParams.PE :
-      # Remove the paired end ID
-      pReadIDs = [read[:-2] for read in readIDs]
-      pReadIDs = list(set(pReadIDs))
-      readIDs = []
-      for readID in pReadIDs :
-        readIDs.append(readID + '_1')
-        readIDs.append(readID + '_2')
-      return readIDs
-    else :
+    if not self.ngsParams.PE:
       return list(set(readIDs))
+    # Remove the paired end ID
+    pReadIDs = [read[:-2] for read in readIDs]
+    pReadIDs = list(set(pReadIDs))
+    readIDs = []
+    for readID in pReadIDs:
+      readIDs.extend((f'{readID}_1', f'{readID}_2'))
+    return readIDs
 
 
 
@@ -1136,7 +1132,7 @@ class AssemblyFactory(object) :
     return returnFile
 
 
-  def assess_assembly(self, contigsFile, assemblyStatsFile, refType) :
+  def assess_assembly(self, contigsFile, assemblyStatsFile, refType):
     """Method to perform an evaluation of a given assembly with the reference one.
 
     Returns measures of similaties between the "best" and the reference assembly.
@@ -1144,13 +1140,13 @@ class AssemblyFactory(object) :
     @type refType: C{'str'}
     """
     # Check for the existance and set the reference BLAST database.
-    if refType == 'nucl' :
-      if not os.path.exists(self.referenceFile + '.nsq') :
-        dbCmd = 'makeblastdb -in %s -dbtype nucl' % self.referenceFile
+    if refType == 'nucl':
+      if not os.path.exists(f'{self.referenceFile}.nsq'):
+        dbCmd = f'makeblastdb -in {self.referenceFile} -dbtype nucl'
         subprocess.call(shlex.split(dbCmd))
-    if refType == 'prot' :
-      if not os.path.exists(self.referenceFile + '.psq') :
-        dbCmd = 'makeblastdb -in %s' % self.referenceFile
+    if refType == 'prot':
+      if not os.path.exists(f'{self.referenceFile}.psq'):
+        dbCmd = f'makeblastdb -in {self.referenceFile}'
         subprocess.call(shlex.split(dbCmd))
     # Collect some measures of the files.
     refNoSeqs     = self.refNoSeqs
@@ -1167,16 +1163,14 @@ class AssemblyFactory(object) :
     else :
       raise StandardError, 'BLAST database type wrong. Only "nucl" and "prot" are supported.'
     blastOut, stdErr = cmdBLASTLine()
-    #TODO Generate a safe tmp file using the tempfile Python module.
-    blastOutfile = open('/tmp/simulatorBLASTOut.xml', 'w')
-    blastOutfile.write(blastOut)
-    blastOutfile.close()
-    blastOutfile = open('/tmp/simulatorBLASTOut.xml', 'r')
+    with open('/tmp/simulatorBLASTOut.xml', 'w') as blastOutfile:
+      blastOutfile.write(blastOut)
+    with open('/tmp/simulatorBLASTOut.xml', 'r') as blastOutfile:
 #    blastRecords = NCBIXML.parse(blastOutfile)
-    totalMatches = 0
-    totalMissmatches = 0
-    totalGaps = 0
-    blastHits = 0
+      totalMatches = 0
+      totalMissmatches = 0
+      totalGaps = 0
+      blastHits = 0
 #    #FIXME Check the BLAST parser and the counts below... some inconsistency has been observed in a self blast experiment! FIXED but check the implementation f the Biopython parser...!!!!!!
 #    for rec in blastRecords :
 #      if rec.alignments :
@@ -1190,31 +1184,28 @@ class AssemblyFactory(object) :
 #            totalGaps = totalGaps + gaps
 #        blastHits = blastHits + 1
 #    # Calculate a distance measure form the reference assembly.
-    for line in blastOutfile :
-      numbers = line.split(',')
-      totalMatches = totalMatches + int(numbers[0])
-      totalMissmatches = totalMissmatches + int(numbers[1])
-      totalGaps = totalGaps + int(numbers[2])
-      blastHits = blastHits + 1
-    distance = math.sqrt( ((2*refNoNucl - totalMatches + totalMissmatches + totalGaps - contigsNoNucl) / float(contigsNoNucl)) ** 2 + ((2*refNoSeqs - blastHits - contigsNo) / float(contigsNo)) ** 2 )
-# distance measure used in the aegilops workshop   distance = math.sqrt((((refNoNucl + contigsNoNucl - (2 * totalMatches)) + (0.5 * totalMissmatches) + totalGaps) / float(meanRefLength)) + ((contigsNo - blastHits) / float(contigsNo)))
-    assemblyAssessFile = open(assemblyStatsFile, 'w')
-    assemblyAssessFile.write('Reference Sequences        : %i\n' % refNoSeqs)
-    assemblyAssessFile.write('Assembled Sequences        : %i\n' % contigsNo)
-    assemblyAssessFile.write('Reference Nucleotides      : %i\n' % refNoNucl)
-    assemblyAssessFile.write('Assembled Nucleotides      : %i\n' % contigsNoNucl)
-    assemblyAssessFile.write('Assembly N50               : %i\n' % N50)
-    assemblyAssessFile.write('Assembly Hits on Reference : %i\n' % blastHits)
-    assemblyAssessFile.write('Total Nucleotide Matches   : %i\n' % totalMatches)
-    assemblyAssessFile.write('Total Nucl Missatches      : %i\n' % totalMissmatches)
-    assemblyAssessFile.write('Total Alignment Gaps       : %i\n' % totalGaps)
-    assemblyAssessFile.write('Relative Reference Matches : %.2f\n' % (100 * totalMatches/float(refNoNucl)))
-    assemblyAssessFile.write('Relative Assembled Matches : %.2f\n' % (100 * totalMatches/float(contigsNoNucl)))
-    assemblyAssessFile.write('Relative Reference Hits    : %.2f\n' % (100 * blastHits/float(refNoSeqs)))
-    assemblyAssessFile.write('Relative Assembled Matches : %.2f\n' % (100 * blastHits/float(contigsNo)))
-    assemblyAssessFile.write('Perfect Assembly Distance  : %.5f\n' % distance)
-    assemblyAssessFile.close()
-    blastOutfile.close()
+      for line in blastOutfile :
+        numbers = line.split(',')
+        totalMatches = totalMatches + int(numbers[0])
+        totalMissmatches = totalMissmatches + int(numbers[1])
+        totalGaps = totalGaps + int(numbers[2])
+        blastHits = blastHits + 1
+      distance = math.sqrt( ((2*refNoNucl - totalMatches + totalMissmatches + totalGaps - contigsNoNucl) / float(contigsNoNucl)) ** 2 + ((2*refNoSeqs - blastHits - contigsNo) / float(contigsNo)) ** 2 )
+      with open(assemblyStatsFile, 'w') as assemblyAssessFile:
+        assemblyAssessFile.write('Reference Sequences        : %i\n' % refNoSeqs)
+        assemblyAssessFile.write('Assembled Sequences        : %i\n' % contigsNo)
+        assemblyAssessFile.write('Reference Nucleotides      : %i\n' % refNoNucl)
+        assemblyAssessFile.write('Assembled Nucleotides      : %i\n' % contigsNoNucl)
+        assemblyAssessFile.write('Assembly N50               : %i\n' % N50)
+        assemblyAssessFile.write('Assembly Hits on Reference : %i\n' % blastHits)
+        assemblyAssessFile.write('Total Nucleotide Matches   : %i\n' % totalMatches)
+        assemblyAssessFile.write('Total Nucl Missatches      : %i\n' % totalMissmatches)
+        assemblyAssessFile.write('Total Alignment Gaps       : %i\n' % totalGaps)
+        assemblyAssessFile.write('Relative Reference Matches : %.2f\n' % (100 * totalMatches/float(refNoNucl)))
+        assemblyAssessFile.write('Relative Assembled Matches : %.2f\n' % (100 * totalMatches/float(contigsNoNucl)))
+        assemblyAssessFile.write('Relative Reference Hits    : %.2f\n' % (100 * blastHits/float(refNoSeqs)))
+        assemblyAssessFile.write('Relative Assembled Matches : %.2f\n' % (100 * blastHits/float(contigsNo)))
+        assemblyAssessFile.write('Perfect Assembly Distance  : %.5f\n' % distance)
     os.unlink('/tmp/simulatorBLASTOut.xml')
 #   if refType == 'nucl' :
 #      os.unlink('bestAssemblyContigs.fasta.nhr')
@@ -1251,7 +1242,7 @@ class TranslationFactory(object) :
     raise StandardError, 'TranslationFactory implementation buggy and incomplete, use some external untility for the translation of sequences.'
 
 
-  def __call__(self, frames) :
+  def __call__(self, frames):
     """The caller of the class.
 
     Implements the translation in the number of frames asked (1-6).
@@ -1261,7 +1252,7 @@ class TranslationFactory(object) :
     @rtype : C{list} of C{class 'Bio.SeqIO.SeqRecord'}
     """
     # check frames is less than 6 and greater than one.
-    if (frames < 1) or (6 < frames) :
+    if frames < 1 or frames > 6:
       raise StandardError, 'The number of frames should be between 1 to 6.'
     translReads = []
     for read in self.ngsParser :
@@ -1297,14 +1288,10 @@ def print_SeqRecord_list(seqRecList, fh) :
 
 
 
-def get_fasta_seqIDs(fastaFile, seqIDList) :
+def get_fasta_seqIDs(fastaFile, seqIDList):
   """Return a list of SeqRecord objects containg the sequences of the provided
    list.
 
   """
-  seqRecList = []
-  for sq in SeqIO.parse(fastaFile, "fasta") :
-    if sq.id in seqIDList :
-      seqRecList.append(sq)
-  return seqRecList
+  return [sq for sq in SeqIO.parse(fastaFile, "fasta") if sq.id in seqIDList]
 
